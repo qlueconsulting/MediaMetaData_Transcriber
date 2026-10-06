@@ -157,3 +157,45 @@ def test_orchestrator_adaptive_sla_routes_to_local_turbo_for_standard_lengths(du
         call_kwargs = mock_local.call_args.kwargs
         assert call_kwargs["model_name"] == "large-v3-turbo"
         assert call_kwargs["audio_duration"] == 1200.0
+
+
+def test_local_whisper_load_model_accepts_model_name(monkeypatch):
+    """LocalWhisperService.load_model must accept model_name keyword argument."""
+    from app.services.whisper_local import LocalWhisperService
+
+    service = LocalWhisperService()
+    mock_model_instance = MagicMock()
+
+    with patch("faster_whisper.WhisperModel", return_value=mock_model_instance) as mock_cls:
+        # Test call with model_name keyword argument
+        loaded = service.load_model(model_name="large-v3-turbo")
+        assert loaded == mock_model_instance
+        assert service._loaded_model_name == "large-v3-turbo"
+        mock_cls.assert_called_once()
+        assert mock_cls.call_args.kwargs["model_size_or_path"] == "large-v3-turbo"
+
+
+def test_local_whisper_transcribe_with_model_name(dummy_audio_file):
+    """LocalWhisperService.transcribe must pass model_name to load_model without error."""
+    from app.services.whisper_local import LocalWhisperService
+
+    service = LocalWhisperService()
+    mock_model_instance = MagicMock()
+    mock_info = MagicMock()
+    mock_info.language = "en"
+    mock_info.language_probability = 0.99
+    mock_info.duration = 10.0
+    mock_model_instance.transcribe.return_value = ([], mock_info)
+
+    with patch.object(service, "load_model", return_value=mock_model_instance) as mock_load:
+        # Ensure CUDA is mocked as false to test standard execution path safely
+        with patch.object(service, "is_cuda_available", return_value=(False, "CPU mode")):
+            result = service.transcribe(
+                audio_path=dummy_audio_file,
+                job_id="test-load-model-job",
+                model_name="large-v3-turbo",
+                audio_duration=15.0,
+            )
+            mock_load.assert_called_once_with(model_name="large-v3-turbo")
+            assert result.job_id == "test-load-model-job"
+

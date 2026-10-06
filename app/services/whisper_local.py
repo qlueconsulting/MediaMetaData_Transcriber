@@ -70,11 +70,11 @@ class LocalWhisperService:
 
         return info
 
-    def load_model(self, force_reload: bool = False):
+    def load_model(self, force_reload: bool = False, model_name: Optional[str] = None):
         """Lazy load or return the preloaded faster-whisper model."""
         from faster_whisper import WhisperModel
 
-        target_model = settings.WHISPER_MODEL
+        target_model = model_name or settings.WHISPER_MODEL
         target_device = settings.WHISPER_DEVICE
         compute_type = settings.WHISPER_COMPUTE_TYPE
 

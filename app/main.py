@@ -1,5 +1,6 @@
 """MediaMetaData_Transcriber FastAPI Application Entrypoint."""
 
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,17 +36,18 @@ async def lifespan(app: FastAPI):
     log.info(f"Operational Guardrails: MAX_DURATION={settings.MAX_DURATION_SECONDS}s (20m), MAX_AUDIO_SIZE={settings.MAX_AUDIO_SIZE_BYTES} bytes (25MB)")
 
     # Warm up Whisper model in a background thread so container starts immediately
-    import threading
+    if "PYTEST_CURRENT_TEST" not in os.environ and not os.environ.get("TESTING"):
+        import threading
 
-    def _warmup():
-        try:
-            log.info(f"Asynchronously warming up Whisper model '{settings.WHISPER_MODEL}'...")
-            local_whisper_service.load_model()
-            log.info(f"Whisper model '{settings.WHISPER_MODEL}' warm and ready in memory.")
-        except Exception as e:
-            log.warning(f"Background model warmup deferred: {e}")
+        def _warmup():
+            try:
+                log.info(f"Asynchronously warming up Whisper model '{settings.WHISPER_MODEL}'...")
+                local_whisper_service.load_model()
+                log.info(f"Whisper model '{settings.WHISPER_MODEL}' warm and ready in memory.")
+            except Exception as e:
+                log.warning(f"Background model warmup deferred: {e}")
 
-    threading.Thread(target=_warmup, daemon=True).start()
+        threading.Thread(target=_warmup, daemon=True).start()
 
     yield
 
