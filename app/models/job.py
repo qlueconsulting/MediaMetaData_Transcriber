@@ -31,6 +31,10 @@ class TranscribeRequest(BaseModel):
         default=False,
         description="If True, bypasses any cached audio and transcript, forcing a fresh download and GPU transcription",
     )
+    max_duration_minutes: Optional[int] = Field(
+        default=None,
+        description="Optional override for maximum video duration in minutes. 0 = unlimited. If omitted, defaults to 20.",
+    )
     job_id: Optional[str] = Field(
         default=None,
         description="Optional pre-existing job ID to attach to or transcribe existing audio for",

@@ -50,12 +50,18 @@ class MediaService:
         url: str,
         job_id: Optional[str] = None,
         bypass_cache: bool = False,
+        max_duration_minutes: Optional[int] = None,
     ) -> MediaMetadataResponse:
         """Extract media metadata without downloading the full stream.
 
-        Flags immediately if video duration exceeds 1,200 seconds (20 minutes).
+        Enforces video duration limit (default 1,200s / 20 mins, overridable via max_duration_minutes).
         Supports cache lookup unless bypass_cache=True.
         """
+        if max_duration_minutes is not None:
+            max_seconds = max_duration_minutes * 60 if max_duration_minutes > 0 else 0
+        else:
+            max_seconds = settings.MAX_DURATION_SECONDS
+
         if not bypass_cache:
             cached_job_id = storage_service.find_job_by_url(url, require_audio=False)
             if cached_job_id:
@@ -67,6 +73,19 @@ class MediaService:
                     cached_meta.cached_job_id = cached_job_id
                     if job_id:
                         cached_meta.job_id = job_id
+                    if max_duration_minutes is not None:
+                        cached_meta.max_duration_seconds = max_seconds
+                        cached_meta.exceeds_duration_limit = check_duration_limit(cached_meta.duration_seconds, max_seconds)
+                        cached_meta.allowed_for_transcription = not cached_meta.exceeds_duration_limit
+                        if cached_meta.exceeds_duration_limit:
+                            limit_desc = f"{max_seconds} seconds ({max_duration_minutes} minutes)" if max_seconds > 0 else "limit"
+                            cached_meta.warning = (
+                                f"Video duration ({cached_meta.duration_seconds:.1f}s / {cached_meta.duration_formatted}) "
+                                f"exceeds the strict limit of {limit_desc}. "
+                                f"Audio extraction and transcription are rejected."
+                            )
+                        else:
+                            cached_meta.warning = None
                     return cached_meta
 
         log.info(f"Extracting metadata for URL: {url}")
@@ -104,17 +123,17 @@ class MediaService:
 
         duration = info.get("duration")
         duration_sec = float(duration) if duration is not None else None
-        exceeds_limit = check_duration_limit(duration_sec, settings.MAX_DURATION_SECONDS)
+        exceeds_limit = check_duration_limit(duration_sec, max_seconds)
         formatted_duration = format_duration(duration_sec)
 
         warning_msg = None
         if exceeds_limit:
+            limit_desc = f"{max_seconds} seconds ({max_seconds // 60} minutes)" if max_seconds > 0 else "limit"
             warning_msg = (
                 f"Video duration ({duration_sec:.1f}s / {formatted_duration}) exceeds the strict limit "
-                f"of {settings.MAX_DURATION_SECONDS} seconds ({int(settings.max_duration_minutes)} minutes). "
-                f"Audio extraction and transcription are rejected."
+                f"of {limit_desc}. Audio extraction and transcription are rejected."
             )
-            log.warning(f"Early 20-Minute Flag triggered: {warning_msg}")
+            log.warning(f"Duration Flag triggered: {warning_msg}")
 
         metadata = MediaMetadataResponse(
             job_id=job_id,
@@ -131,7 +150,7 @@ class MediaService:
             thumbnail=info.get("thumbnail"),
             description=info.get("description"),
             exceeds_duration_limit=exceeds_limit,
-            max_duration_seconds=settings.MAX_DURATION_SECONDS,
+            max_duration_seconds=max_seconds,
             allowed_for_transcription=not exceeds_limit,
             warning=warning_msg,
             created_at=datetime.now(timezone.utc).isoformat(),
@@ -145,17 +164,23 @@ class MediaService:
         job_id: str,
         pre_extracted_meta: Optional[MediaMetadataResponse] = None,
         bypass_cache: bool = False,
+        max_duration_minutes: Optional[int] = None,
     ) -> Tuple[Path, MediaMetadataResponse]:
         """Download and extract audio converted to 16kHz mono MP3 (-ac 1 -ar 16000 -b:a 64k).
 
         Enforces:
-        1. Early 20-minute limit rejection with HTTP 400.
+        1. Video duration limit (default 20 mins / 1,200s, overridable via max_duration_minutes).
         2. Audio file size <= 25MB check with HTTP 400.
         3. Saves meta.json and audio.mp3 into /srv/storage/jobs/{job_id}/.
         Supports cache lookup unless bypass_cache=True.
         """
         job_dir = storage_service.get_job_dir(job_id, create=True)
         target_audio_path = job_dir / "audio.mp3"
+
+        if max_duration_minutes is not None:
+            max_seconds = max_duration_minutes * 60 if max_duration_minutes > 0 else 0
+        else:
+            max_seconds = settings.MAX_DURATION_SECONDS
 
         if not bypass_cache:
             cached_job_id = storage_service.find_job_by_url(url, require_audio=True)
@@ -173,19 +198,28 @@ class MediaService:
                     cached_meta.job_id = job_id
                     cached_meta.cached = True
                     cached_meta.cached_job_id = cached_job_id
+                    if max_duration_minutes is not None:
+                        cached_meta.max_duration_seconds = max_seconds
+                        cached_meta.exceeds_duration_limit = check_duration_limit(cached_meta.duration_seconds, max_seconds)
+                        cached_meta.allowed_for_transcription = not cached_meta.exceeds_duration_limit
                     return target_audio_path, cached_meta
 
-        # 1. Early 20-Minute Guardrail Check
+        # 1. Video Duration Guardrail Check
         if pre_extracted_meta is not None:
             metadata = pre_extracted_meta
             metadata.job_id = job_id
         else:
-            metadata = self.extract_metadata(url, job_id=job_id, bypass_cache=bypass_cache)
+            metadata = self.extract_metadata(
+                url,
+                job_id=job_id,
+                bypass_cache=bypass_cache,
+                max_duration_minutes=max_duration_minutes,
+            )
 
-        # Reject if > 1200 seconds
+        # Reject if > max_seconds
         validate_video_duration(
             duration_seconds=metadata.duration_seconds,
-            max_seconds=settings.MAX_DURATION_SECONDS,
+            max_seconds=max_seconds,
             context="Audio extraction",
         )
 

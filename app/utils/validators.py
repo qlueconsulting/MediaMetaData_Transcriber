@@ -32,11 +32,18 @@ def format_duration(seconds: Optional[Union[int, float]]) -> str:
 def check_duration_limit(duration_seconds: Optional[Union[int, float]], max_seconds: Optional[int] = None) -> bool:
     """Check if the video duration exceeds the maximum allowed duration.
 
-    Returns True if duration > max_seconds, False otherwise.
+    Returns True if duration > max_seconds (when max_seconds > 0), False otherwise.
+    If max_seconds <= 0, returns False (unlimited).
+    If max_seconds is None, defaults to settings.MAX_DURATION_SECONDS.
     """
     if duration_seconds is None:
         return False
-    threshold = max_seconds or settings.MAX_DURATION_SECONDS
+    if max_seconds is not None:
+        if max_seconds <= 0:
+            return False
+        threshold = max_seconds
+    else:
+        threshold = settings.MAX_DURATION_SECONDS
     return float(duration_seconds) > float(threshold)
 
 
@@ -45,16 +52,25 @@ def validate_video_duration(
     max_seconds: Optional[int] = None,
     context: str = "Video processing",
 ) -> None:
-    """Enforce the Early 20-Minute Guardrail.
+    """Enforce the Video Duration Guardrail.
 
-    Any attempt to trigger audio extraction or transcription on a video > 1,200 seconds (20 minutes)
-    MUST be rejected early with an HTTP 400 Bad Request error.
+    Any attempt to trigger audio extraction or transcription on a video exceeding max_seconds
+    (default 1,200 seconds / 20 minutes) MUST be rejected early with an HTTP 400 Bad Request error.
+    If max_seconds <= 0, the limit is bypassed (unlimited).
     """
-    threshold = max_seconds or settings.MAX_DURATION_SECONDS
-    max_minutes = threshold / 60.0
+    if duration_seconds is None:
+        return
 
-    if duration_seconds is not None and float(duration_seconds) > float(threshold):
+    if max_seconds is not None:
+        if max_seconds <= 0:
+            return
+        threshold = max_seconds
+    else:
+        threshold = settings.MAX_DURATION_SECONDS
+
+    if float(duration_seconds) > float(threshold):
         formatted_duration = format_duration(duration_seconds)
+        max_minutes = threshold / 60.0
         error_msg = (
             f"{context} rejected: Video duration ({float(duration_seconds):.1f}s / {formatted_duration}) "
             f"exceeds the strict operational limit of {threshold} seconds ({int(max_minutes)} minutes)."

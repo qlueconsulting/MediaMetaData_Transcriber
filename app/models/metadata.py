@@ -16,6 +16,10 @@ class MediaMetadataRequest(BaseModel):
         default=False,
         description="If True, bypasses any cached metadata and forces a fresh query to the provider",
     )
+    max_duration_minutes: Optional[int] = Field(
+        default=None,
+        description="Optional override for maximum video duration in minutes. 0 = unlimited. If omitted, defaults to 20.",
+    )
 
 
 class MediaMetadataResponse(BaseModel):
@@ -75,11 +79,11 @@ class MediaMetadataResponse(BaseModel):
     # Operational Guardrails Flags
     exceeds_duration_limit: bool = Field(
         ...,
-        description="Early 20-minute decision flag. True if duration > 1,200 seconds",
+        description="Duration decision flag. True if duration > max_duration_seconds (when max_duration_seconds > 0)",
     )
-    max_duration_seconds: int = Field(
+    max_duration_seconds: Optional[int] = Field(
         default=1200,
-        description="Max permitted duration threshold in seconds (1,200s / 20 mins)",
+        description="Max permitted duration threshold in seconds (0 = unlimited)",
     )
     allowed_for_transcription: bool = Field(
         ...,

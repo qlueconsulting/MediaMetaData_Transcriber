@@ -67,18 +67,25 @@ def transcribe_media(request: TranscribeRequest) -> JobResponse:
 
     log.info(f"Initiating live transcription pipeline for job {job_id} on URL: {url}")
 
-    # Step 1: Pre-extract metadata & Enforce Early 20-Minute Guardrail
+    # Step 1: Pre-extract metadata & Enforce Duration Guardrail
     meta_kwargs = {"url": url, "job_id": job_id}
     if request.bypass_cache:
         meta_kwargs["bypass_cache"] = True
+    if request.max_duration_minutes is not None:
+        meta_kwargs["max_duration_minutes"] = request.max_duration_minutes
     metadata = media_service.extract_metadata(**meta_kwargs)
 
     if metadata.exceeds_duration_limit:
+        limit_desc = (
+            f"{metadata.max_duration_seconds} seconds ({metadata.max_duration_seconds // 60} minutes)"
+            if metadata.max_duration_seconds and metadata.max_duration_seconds > 0
+            else "duration limit"
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 f"Video duration ({metadata.duration_seconds:.1f}s / {metadata.duration_formatted}) "
-                f"exceeds the operational limit of {metadata.max_duration_seconds} seconds (20 minutes). "
+                f"exceeds the operational limit of {limit_desc}. "
                 f"Audio extraction and transcription rejected."
             ),
         )
@@ -87,6 +94,8 @@ def transcribe_media(request: TranscribeRequest) -> JobResponse:
     dl_kwargs = {"url": url, "job_id": job_id, "pre_extracted_meta": metadata}
     if request.bypass_cache:
         dl_kwargs["bypass_cache"] = True
+    if request.max_duration_minutes is not None:
+        dl_kwargs["max_duration_minutes"] = request.max_duration_minutes
     audio_path, saved_meta = media_service.download_and_extract_audio(**dl_kwargs)
     audio_size = storage_service.get_audio_size(job_id)
 
@@ -127,7 +136,7 @@ def extract_audio_only(request: MediaMetadataRequest) -> ExtractAudioResponse:
     """Extract and encode audio without triggering speech-to-text.
 
     Enforces:
-    1. Early 20-minute check (rejection if > 1,200s).
+    1. Duration limit check (rejection if exceeding limit).
     2. Conversion to 16kHz mono MP3 (-ac 1 -ar 16000 -b:a 64k).
     3. Audio file size guard (rejection if > 25 MB).
     4. Saves meta.json and audio.mp3 to /srv/storage/jobs/{job_id}/.
@@ -157,14 +166,21 @@ def extract_audio_only(request: MediaMetadataRequest) -> ExtractAudioResponse:
     meta_kwargs = {"url": url, "job_id": job_id}
     if request.bypass_cache:
         meta_kwargs["bypass_cache"] = True
+    if request.max_duration_minutes is not None:
+        meta_kwargs["max_duration_minutes"] = request.max_duration_minutes
     metadata = media_service.extract_metadata(**meta_kwargs)
 
     if metadata.exceeds_duration_limit:
+        limit_desc = (
+            f"{metadata.max_duration_seconds} seconds ({metadata.max_duration_seconds // 60} minutes)"
+            if metadata.max_duration_seconds and metadata.max_duration_seconds > 0
+            else "duration limit"
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 f"Video duration ({metadata.duration_seconds:.1f}s / {metadata.duration_formatted}) "
-                f"exceeds the operational limit of {metadata.max_duration_seconds} seconds (20 minutes). "
+                f"exceeds the operational limit of {limit_desc}. "
                 f"Audio extraction rejected."
             ),
         )
@@ -172,6 +188,8 @@ def extract_audio_only(request: MediaMetadataRequest) -> ExtractAudioResponse:
     dl_kwargs = {"url": url, "job_id": job_id, "pre_extracted_meta": metadata}
     if request.bypass_cache:
         dl_kwargs["bypass_cache"] = True
+    if request.max_duration_minutes is not None:
+        dl_kwargs["max_duration_minutes"] = request.max_duration_minutes
     audio_path, saved_meta = media_service.download_and_extract_audio(**dl_kwargs)
     audio_size = storage_service.get_audio_size(job_id) or 0
 

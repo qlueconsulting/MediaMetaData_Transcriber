@@ -90,6 +90,29 @@ class TestMetadataEndpoint:
             assert data["allowed_for_transcription"] is False
             assert "exceeds the strict limit of 1200 seconds" in data["warning"]
 
+    def test_metadata_over_20_minutes_allowed_with_override(self, client: TestClient, sample_oversized_meta_dict):
+        """Videos > 20m pass metadata guardrail when max_duration_minutes override is provided."""
+        with patch("yt_dlp.YoutubeDL") as mock_ydl:
+            mock_inst = MagicMock()
+            mock_inst.extract_info.return_value = sample_oversized_meta_dict
+            mock_ydl.return_value.__enter__.return_value = mock_inst
+
+            response = client.post(
+                "/api/v1/metadata",
+                json={
+                    "url": "https://www.youtube.com/watch?v=longpodcast",
+                    "max_duration_minutes": 30,
+                },
+            )
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["duration_seconds"] == 1500
+            assert data["max_duration_seconds"] == 1800
+            assert data["exceeds_duration_limit"] is False
+            assert data["allowed_for_transcription"] is True
+            assert data["warning"] is None
+
 
 class TestTranscriptionAndAudioExtractionGuardrails:
     """Test transcribe & extract endpoints enforcing the 20-min early rejection and 25MB limits."""
@@ -108,6 +131,58 @@ class TestTranscriptionAndAudioExtractionGuardrails:
 
             assert response.status_code == 400
             assert "exceeds the operational limit of 1200 seconds (20 minutes)" in response.json()["detail"]
+
+    def test_transcribe_over_20_minutes_allowed_with_override(self, client: TestClient, sample_oversized_meta_dict):
+        """When max_duration_minutes override is supplied, video > 20m proceeds without guardrail rejection."""
+        oversized_meta_resp = MediaMetadataResponse(
+            url="https://www.youtube.com/watch?v=longpodcast",
+            title="Long 25-Minute Podcast Episode",
+            creator="PodcastStudio",
+            duration_seconds=1500,
+            duration_formatted="25:00",
+            platform="youtube",
+            exceeds_duration_limit=False,
+            max_duration_seconds=1800,
+            allowed_for_transcription=True,
+        )
+
+        mock_transcript = TranscriptData(
+            job_id="dummy-overridden-id",
+            text="This is a 25 minute podcast transcribed.",
+            language="en",
+            duration_seconds=1500.0,
+            engine="faster-whisper-cuda",
+            model="large-v3",
+            segments=[],
+        )
+
+        with patch("app.services.media.media_service.extract_metadata", return_value=oversized_meta_resp), \
+             patch("app.services.media.media_service.download_and_extract_audio") as mock_dl, \
+             patch("app.services.transcription.transcription_orchestrator.transcribe", return_value=mock_transcript):
+
+            def fake_dl(url, job_id, pre_extracted_meta=None, **kwargs):
+                from app.services.storage import storage_service
+                audio_file = storage_service.get_audio_path(job_id)
+                audio_file.parent.mkdir(parents=True, exist_ok=True)
+                audio_file.write_bytes(b"\x00" * 5000)
+                storage_service.save_meta(job_id, oversized_meta_resp.model_dump())
+                return audio_file, oversized_meta_resp
+
+            mock_dl.side_effect = fake_dl
+
+            response = client.post(
+                "/api/v1/transcribe",
+                json={
+                    "url": "https://www.youtube.com/watch?v=longpodcast",
+                    "max_duration_minutes": 30,
+                },
+            )
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "completed"
+            assert data["meta"]["duration_seconds"] == 1500
+            assert data["meta"]["max_duration_seconds"] == 1800
 
     def test_extract_audio_over_20_minutes_rejected_with_http_400(self, client: TestClient, sample_oversized_meta_dict):
         """Any attempt to trigger audio extraction on video > 20 minutes MUST be rejected with HTTP 400."""

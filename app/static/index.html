@@ -840,6 +840,19 @@
             <label for="wordTimestamps">Word-level timestamps</label>
           </div>
           <div class="toggle-item" style="border-left: 1px solid var(--card-border); padding-left: 0.75rem;">
+            <label for="durationLimitOverride" style="font-weight: 600; color: #f59e0b;" title="Override maximum allowed video duration in minutes. 0 = unlimited. Default is 20.">Limit (mins):</label>
+            <input 
+              type="number" 
+              id="durationLimitOverride" 
+              style="width: 70px; padding: 0.25rem 0.5rem; font-size: 0.8rem; background: var(--code-bg); border: 1px solid var(--card-border); color: #fbbf24; font-weight: bold; border-radius: 6px; text-align: center;" 
+              placeholder="20" 
+              value="20" 
+              min="0" 
+              step="1" 
+              title="Override maximum allowed video duration in minutes (0 = unlimited, default 20)"
+            />
+          </div>
+          <div class="toggle-item" style="border-left: 1px solid var(--card-border); padding-left: 0.75rem;">
             <input type="checkbox" id="bypassCacheToggle" checked />
             <label for="bypassCacheToggle" style="font-weight: 600; color: #93c5fd;" title="Checked: Forces live extraction & transcription. Unchecked: Returns existing cache instantly if available.">
               Bypass Cache (Force Fresh Live Run)
@@ -1429,6 +1442,9 @@
       document.getElementById('metricSTT').textContent = '--';
       document.getElementById('metricRTF').textContent = '--';
 
+      const limitInput = document.getElementById('durationLimitOverride');
+      if (limitInput) limitInput.value = '20';
+
       document.getElementById('metaEmptyState').style.display = 'block';
       document.getElementById('metaContent').style.display = 'none';
       document.getElementById('audioEmptyState').style.display = 'block';
@@ -1486,28 +1502,40 @@
       const wordTimestamps = document.getElementById('wordTimestamps').checked;
       const bypassCache = document.getElementById('bypassCacheToggle').checked;
 
+      const limitInput = document.getElementById('durationLimitOverride') ? document.getElementById('durationLimitOverride').value.trim() : '';
+      let maxDurationMinutes = null;
+      if (limitInput !== '') {
+        const parsed = parseInt(limitInput, 10);
+        if (!isNaN(parsed) && parsed >= 0) {
+          maxDurationMinutes = parsed;
+        }
+      }
+
       startMainStopwatch(mode.toUpperCase());
 
       try {
         if (mode === 'metadata') {
           // Single step: Metadata Only
-          await runMetadataCall(url, bypassCache);
+          await runMetadataCall(url, bypassCache, maxDurationMinutes);
           stopMainStopwatch('Completed (Metadata Only)');
         } else if (mode === 'audio') {
           // Two steps: Metadata then Audio extraction
-          await runMetadataCall(url, bypassCache);
-          await runAudioCall(url, bypassCache);
+          await runMetadataCall(url, bypassCache, maxDurationMinutes);
+          await runAudioCall(url, bypassCache, maxDurationMinutes);
           stopMainStopwatch('Completed (Audio Only)');
         } else if (mode === 'transcribe') {
           // STRICT SEQUENTIAL CHAINING:
           // Step 1: Metadata resolution (Step 1 active & counting; Step 2 & 3 Idle)
-          const metaData = await runMetadataCall(url, bypassCache);
+          const metaData = await runMetadataCall(url, bypassCache, maxDurationMinutes);
           if (metaData.exceeds_duration_limit) {
-            throw new Error(`Video exceeds 20-minute operational limit (${metaData.duration_formatted}). Pipeline rejected.`);
+            const limitText = (metaData.max_duration_seconds && metaData.max_duration_seconds > 0)
+              ? `${Math.round(metaData.max_duration_seconds / 60)} mins`
+              : 'unlimited';
+            throw new Error(`Video exceeds operational limit of ${limitText} (${metaData.duration_formatted}). Pipeline rejected.`);
           }
 
           // Step 2: 16kHz Audio & Size Guard (Step 1 Completed 200 OK; Step 2 active & counting; Step 3 is STILL Idle!)
-          const audioData = await runAudioCall(url, bypassCache);
+          const audioData = await runAudioCall(url, bypassCache, maxDurationMinutes);
           const jobId = audioData.job_id;
 
           // Step 3: Whisper Transcription (Step 1 & 2 Completed 200 OK; Step 3 ONLY NOW fires and counts in order!)
@@ -1524,13 +1552,16 @@
     }
 
     // STEP 1: POST /api/v1/metadata
-    async function runMetadataCall(url, bypassCache) {
+    async function runMetadataCall(url, bypassCache, maxDurationMinutes = null) {
       const stepEl = document.getElementById('stepMeta');
       stepEl.className = 'step-card active';
       document.getElementById('stepMetaText').innerHTML = '<span class="spinner"></span> Resolving...';
       startStepTimer('stepMeta', 'stepMetaLatency');
 
       const payload = { url: url, bypass_cache: bypassCache };
+      if (maxDurationMinutes !== null) {
+        payload.max_duration_minutes = maxDurationMinutes;
+      }
 
       try {
         const res = await executeApiCall({
@@ -1558,13 +1589,16 @@
     }
 
     // STEP 2: POST /api/v1/extract-audio
-    async function runAudioCall(url, bypassCache) {
+    async function runAudioCall(url, bypassCache, maxDurationMinutes = null) {
       const stepAudio = document.getElementById('stepAudio');
       stepAudio.className = 'step-card active';
       document.getElementById('stepAudioText').innerHTML = '<span class="spinner"></span> Extracting 16kHz MP3...';
       startStepTimer('stepAudio', 'stepAudioLatency');
 
       const payload = { url: url, bypass_cache: bypassCache };
+      if (maxDurationMinutes !== null) {
+        payload.max_duration_minutes = maxDurationMinutes;
+      }
 
       try {
         const res = await executeApiCall({
@@ -1656,25 +1690,31 @@
         thumb.style.display = 'none';
       }
 
-      // Early 20-minute decision banner
+      // Duration decision banner
       const banner = document.getElementById('durationGuardrailBanner');
       const bannerText = document.getElementById('durationGuardrailText');
       const bannerIcon = document.getElementById('durationGuardrailIcon');
       const statusPill = document.getElementById('metaStatusPill');
 
+      const isOverridden = meta.max_duration_seconds !== 1200;
+      const limitText = (meta.max_duration_seconds && meta.max_duration_seconds > 0)
+        ? `${Math.round(meta.max_duration_seconds / 60)} mins / ${meta.max_duration_seconds}s`
+        : 'unlimited';
+
       if (meta.exceeds_duration_limit) {
         banner.className = 'guardrail-alert guardrail-fail';
         bannerIcon.innerHTML = '&#9888;';
-        bannerText.textContent = `REJECTED: Video is ${meta.duration_formatted} (> 20 mins / 1,200s). Transcription forbidden!`;
+        bannerText.textContent = `REJECTED: Video is ${meta.duration_formatted} (> ${limitText}). Transcription forbidden!`;
         statusPill.className = 'pill pill-red';
-        statusPill.textContent = 'Exceeds 20m';
+        statusPill.textContent = 'Exceeds Limit';
       } else {
         banner.className = 'guardrail-alert guardrail-pass';
         bannerIcon.innerHTML = '&#10003;';
+        const overrideTag = isOverridden ? ' [Override Active]' : '';
         const cacheNote = meta.cached ? ' [Cached Environment]' : ' [Live Resolution]';
-        bannerText.textContent = `PASS: Video is ${meta.duration_formatted} (<= 20 mins / 1,200s). Permitted for STT.${cacheNote}`;
-        statusPill.className = meta.cached ? 'pill pill-green' : 'pill pill-blue';
-        statusPill.textContent = meta.cached ? '\u26A1 Cached' : 'Within Limit';
+        bannerText.textContent = `PASS: Video is ${meta.duration_formatted} (<= ${limitText}${overrideTag}). Permitted for STT.${cacheNote}`;
+        statusPill.className = meta.cached ? 'pill pill-green' : (isOverridden ? 'pill pill-purple' : 'pill pill-blue');
+        statusPill.textContent = meta.cached ? '\u26A1 Cached' : (isOverridden ? 'Override Pass' : 'Within Limit');
       }
 
       document.getElementById('rawMetaJson').textContent = JSON.stringify(meta, null, 2);

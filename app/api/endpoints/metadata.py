@@ -17,4 +17,5 @@ def get_media_metadata(request: MediaMetadataRequest) -> MediaMetadataResponse:
     return media_service.extract_metadata(
         url=str(request.url).strip(),
         bypass_cache=request.bypass_cache,
+        max_duration_minutes=request.max_duration_minutes,
     )

@@ -43,6 +43,27 @@ class TestDurationGuardrail:
         assert exc_info.value.status_code == 400
         assert "exceeds the strict operational limit of 1200 seconds (20 minutes)" in exc_info.value.detail
 
+    def test_duration_override_custom_limit_passes(self):
+        """Videos over default 20m pass when max_seconds is overridden to e.g. 30m (1800s)."""
+        # 25 minutes = 1500s
+        assert check_duration_limit(1500, max_seconds=1800) is False
+        validate_video_duration(1500, max_seconds=1800)
+
+    def test_duration_override_custom_limit_exceeded(self):
+        """Videos exceeding the overridden limit still raise HTTP 400."""
+        # 35 minutes = 2100s, limit = 30m (1800s)
+        assert check_duration_limit(2100, max_seconds=1800) is True
+        with pytest.raises(GuardrailViolationError) as exc_info:
+            validate_video_duration(2100, max_seconds=1800)
+        assert exc_info.value.status_code == 400
+        assert "exceeds the strict operational limit of 1800 seconds (30 minutes)" in exc_info.value.detail
+
+    def test_duration_override_unlimited(self):
+        """Setting max_seconds=0 allows any video duration through (unlimited)."""
+        # 2 hours = 7200s
+        assert check_duration_limit(7200, max_seconds=0) is False
+        validate_video_duration(7200, max_seconds=0)
+
     def test_duration_formatted(self):
         """Test formatting of durations."""
         assert format_duration(59) == "00:59"
