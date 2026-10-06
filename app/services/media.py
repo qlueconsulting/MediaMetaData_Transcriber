@@ -1,6 +1,7 @@
 """Media extraction service using yt-dlp and ffmpeg with operational guardrails."""
 
 import os
+import shutil
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
 from datetime import datetime, timezone
@@ -44,11 +45,30 @@ class MediaService:
             opts["proxy"] = settings.YTDLP_PROXY
         return opts
 
-    def extract_metadata(self, url: str, job_id: Optional[str] = None) -> MediaMetadataResponse:
+    def extract_metadata(
+        self,
+        url: str,
+        job_id: Optional[str] = None,
+        bypass_cache: bool = False,
+    ) -> MediaMetadataResponse:
         """Extract media metadata without downloading the full stream.
 
         Flags immediately if video duration exceeds 1,200 seconds (20 minutes).
+        Supports cache lookup unless bypass_cache=True.
         """
+        if not bypass_cache:
+            cached_job_id = storage_service.find_job_by_url(url, require_audio=False)
+            if cached_job_id:
+                meta_dict = storage_service.get_meta(cached_job_id)
+                if meta_dict:
+                    log.info(f"Serving cached metadata for {url} from job {cached_job_id}")
+                    cached_meta = MediaMetadataResponse(**meta_dict)
+                    cached_meta.cached = True
+                    cached_meta.cached_job_id = cached_job_id
+                    if job_id:
+                        cached_meta.job_id = job_id
+                    return cached_meta
+
         log.info(f"Extracting metadata for URL: {url}")
         opts = self._get_base_ytdlp_opts()
         opts.update({
@@ -124,6 +144,7 @@ class MediaService:
         url: str,
         job_id: str,
         pre_extracted_meta: Optional[MediaMetadataResponse] = None,
+        bypass_cache: bool = False,
     ) -> Tuple[Path, MediaMetadataResponse]:
         """Download and extract audio converted to 16kHz mono MP3 (-ac 1 -ar 16000 -b:a 64k).
 
@@ -131,15 +152,35 @@ class MediaService:
         1. Early 20-minute limit rejection with HTTP 400.
         2. Audio file size <= 25MB check with HTTP 400.
         3. Saves meta.json and audio.mp3 into /srv/storage/jobs/{job_id}/.
+        Supports cache lookup unless bypass_cache=True.
         """
         job_dir = storage_service.get_job_dir(job_id, create=True)
+        target_audio_path = job_dir / "audio.mp3"
+
+        if not bypass_cache:
+            cached_job_id = storage_service.find_job_by_url(url, require_audio=True)
+            if cached_job_id:
+                cached_audio = storage_service.get_audio_path(cached_job_id)
+                cached_meta_dict = storage_service.get_meta(cached_job_id)
+                if cached_audio.is_file() and cached_meta_dict:
+                    log.info(f"Serving cached audio for {url} from job {cached_job_id}")
+                    if cached_job_id != job_id:
+                        shutil.copy2(cached_audio, target_audio_path)
+                        storage_service.save_meta(job_id, {**cached_meta_dict, "job_id": job_id})
+                    else:
+                        target_audio_path = cached_audio
+                    cached_meta = MediaMetadataResponse(**cached_meta_dict)
+                    cached_meta.job_id = job_id
+                    cached_meta.cached = True
+                    cached_meta.cached_job_id = cached_job_id
+                    return target_audio_path, cached_meta
 
         # 1. Early 20-Minute Guardrail Check
         if pre_extracted_meta is not None:
             metadata = pre_extracted_meta
             metadata.job_id = job_id
         else:
-            metadata = self.extract_metadata(url, job_id=job_id)
+            metadata = self.extract_metadata(url, job_id=job_id, bypass_cache=bypass_cache)
 
         # Reject if > 1200 seconds
         validate_video_duration(

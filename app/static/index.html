@@ -629,6 +629,7 @@
     .status-2xx { background: var(--success-bg); color: var(--success); border: 1px solid rgba(16, 185, 129, 0.3); }
     .status-4xx { background: var(--danger-bg); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.3); }
     .status-5xx { background: rgba(220, 38, 38, 0.25); color: #f87171; border: 1px solid rgba(220, 38, 38, 0.4); }
+    .status-inflight { background: rgba(59, 130, 246, 0.25); color: #93c5fd; border: 1px solid rgba(59, 130, 246, 0.4); display: inline-flex; align-items: center; gap: 0.35rem; }
 
     /* Modal / Inspector Dialog */
     .modal-backdrop {
@@ -837,6 +838,12 @@
           <div class="toggle-item">
             <input type="checkbox" id="wordTimestamps" />
             <label for="wordTimestamps">Word-level timestamps</label>
+          </div>
+          <div class="toggle-item" style="border-left: 1px solid var(--card-border); padding-left: 0.75rem;">
+            <input type="checkbox" id="bypassCacheToggle" checked />
+            <label for="bypassCacheToggle" style="font-weight: 600; color: #93c5fd;" title="Checked: Forces live extraction & transcription. Unchecked: Returns existing cache instantly if available.">
+              Bypass Cache (Force Fresh Live Run)
+            </label>
           </div>
         </div>
       </div>
@@ -1139,9 +1146,117 @@
     }
 
     // Logging helper that tracks and stores API calls
-    function recordApiCall(entry) {
+    // API Call History Store & Real-Time Tracker
+    let callCounter = 0;
+    const apiCallHistory = [];
+
+    // Live ticking interval for in-flight requests in the table
+    setInterval(() => {
+      const hasInFlight = apiCallHistory.some(c => c.inFlight);
+      if (!hasInFlight) return;
+      apiCallHistory.forEach(call => {
+        if (call.inFlight) {
+          const el = document.getElementById(`call-dur-${call.id}`);
+          if (el) {
+            const elapsed = (performance.now() - call.startTime) / 1000;
+            el.textContent = elapsed < 60 ? `${elapsed.toFixed(1)} s` : `${Math.floor(elapsed/60)}m ${(elapsed%60).toFixed(0)}s`;
+          }
+        }
+      });
+    }, 60);
+
+    // Centralized API Caller that immediately logs every call upon button click
+    async function executeApiCall({ method, endpoint, payload = null }) {
+      const callId = ++callCounter;
+      const startTime = performance.now();
+      const timeStr = new Date().toLocaleTimeString();
+
+      const entry = {
+        id: callId,
+        timeStr: timeStr,
+        method: method,
+        endpoint: endpoint,
+        status: 'IN FLIGHT',
+        statusCode: null,
+        statusText: 'In Flight...',
+        durationMs: 0,
+        startTime: startTime,
+        inFlight: true,
+        requestPayload: payload,
+        responsePayload: null,
+      };
+
+      // 1. Immediately log into table before any network packet is dispatched
       apiCallHistory.unshift(entry);
       renderCallHistory();
+
+      // If modal is currently inspecting this call ID, update it live
+      if (inspectedCallIndex !== null && apiCallHistory[inspectedCallIndex]?.id === callId) {
+        populateModalData(entry);
+      }
+
+      try {
+        const fetchOptions = {
+          method: method,
+          headers: {},
+        };
+        if (payload !== null && payload !== undefined) {
+          fetchOptions.headers['Content-Type'] = 'application/json';
+          fetchOptions.body = JSON.stringify(payload);
+        }
+
+        const res = await fetch(endpoint, fetchOptions);
+        const duration = performance.now() - startTime;
+
+        entry.inFlight = false;
+        entry.durationMs = duration;
+        entry.status = res.status;
+        entry.statusCode = res.status;
+        entry.statusText = res.statusText || (res.ok ? 'OK' : 'Error');
+
+        let data = null;
+        const ctype = res.headers.get('content-type') || '';
+        if (ctype.includes('application/json')) {
+          data = await res.json().catch(() => ({}));
+        } else {
+          const txt = await res.text().catch(() => '');
+          data = { responseText: txt };
+        }
+        entry.responsePayload = data;
+
+        // 2. Update record in-place when call completes
+        renderCallHistory();
+        if (inspectedCallIndex !== null && apiCallHistory[inspectedCallIndex]?.id === callId) {
+          populateModalData(entry);
+        }
+
+        if (!res.ok) {
+          const errorMsg = (data && data.detail) ? data.detail : `${res.status} ${res.statusText}`;
+          const err = new Error(errorMsg);
+          err.status = res.status;
+          err.data = data;
+          throw err;
+        }
+
+        return { ok: res.ok, status: res.status, data: data, durationMs: duration };
+      } catch (err) {
+        const duration = performance.now() - startTime;
+        entry.inFlight = false;
+        entry.durationMs = duration;
+        if (!entry.statusCode) {
+          entry.status = 0;
+          entry.statusCode = 0;
+          entry.statusText = 'Network Error';
+          entry.responsePayload = { error: err.message };
+        }
+
+        renderCallHistory();
+        if (inspectedCallIndex !== null && apiCallHistory[inspectedCallIndex]?.id === callId) {
+          populateModalData(entry);
+        }
+
+        throw err;
+      }
     }
 
     function renderCallHistory() {
@@ -1165,23 +1280,36 @@
       apiCallHistory.forEach((call, index) => {
         const tr = document.createElement('tr');
 
-        let statusClass = 'status-2xx';
-        if (call.status >= 400 && call.status < 500) statusClass = 'status-4xx';
-        else if (call.status >= 500 || call.status === 0) statusClass = 'status-5xx';
+        let statusBadgeHtml = '';
+        if (call.inFlight) {
+          statusBadgeHtml = `<span class="status-code-badge status-inflight"><span class="spinner" style="width:9px;height:9px;border-width:1.5px;"></span> IN FLIGHT</span>`;
+        } else {
+          let statusClass = 'status-2xx';
+          if (call.status >= 400 && call.status < 500) statusClass = 'status-4xx';
+          else if (call.status >= 500 || call.status === 0) statusClass = 'status-5xx';
+          statusBadgeHtml = `<span class="status-code-badge ${statusClass}">${call.status || 'ERR'} ${call.statusText || ''}</span>`;
+        }
 
         let methodClass = 'method-post';
         if (call.method === 'GET') methodClass = 'method-get';
         else if (call.method === 'DELETE') methodClass = 'method-delete';
 
-        const durationFormatted = call.durationMs < 1000 ? `${call.durationMs.toFixed(0)} ms` : `${(call.durationMs/1000).toFixed(2)} s`;
+        let durationHtml = '';
+        if (call.inFlight) {
+          const liveSec = ((performance.now() - call.startTime) / 1000).toFixed(1);
+          durationHtml = `<span id="call-dur-${call.id}" style="font-family: monospace; font-weight: 600; color: #93c5fa;">${liveSec} s</span>`;
+        } else {
+          const durText = call.durationMs < 1000 ? `${call.durationMs.toFixed(0)} ms` : `${(call.durationMs/1000).toFixed(2)} s`;
+          durationHtml = `<span style="font-family: monospace; font-weight: 600; color: #93c5fd;">${durText}</span>`;
+        }
 
         tr.innerHTML = `
-          <td style="color: var(--text-dim); font-family: monospace;">#${apiCallHistory.length - index}</td>
+          <td style="color: var(--text-dim); font-family: monospace;">#${call.id}</td>
           <td style="color: var(--text-muted); font-size: 0.78rem;">${call.timeStr}</td>
           <td><span class="method-tag ${methodClass}">${call.method}</span></td>
           <td style="font-family: monospace; font-size: 0.8rem; color: #e5e7eb;">${call.endpoint}</td>
-          <td><span class="status-code-badge ${statusClass}">${call.status || 'ERR'} ${call.statusText || ''}</span></td>
-          <td style="font-family: monospace; font-weight: 600; color: #93c5fd;">${durationFormatted}</td>
+          <td>${statusBadgeHtml}</td>
+          <td>${durationHtml}</td>
           <td style="text-align: right;">
             <button class="btn-secondary btn-xs" onclick="openInspectModal(${index})">Inspect</button>
           </td>
@@ -1210,28 +1338,38 @@
       inspectedCallIndex = index;
       const call = apiCallHistory[index];
       if (!call) return;
-
-      document.getElementById('modalTitle').textContent = `API Call #${apiCallHistory.length - index}: ${call.method} ${call.endpoint}`;
-      document.getElementById('modalMethod').textContent = call.method;
-      document.getElementById('modalMethod').className = `method-tag method-${call.method.toLowerCase()}`;
-      document.getElementById('modalStatus').textContent = `${call.status} ${call.statusText || ''}`;
-      
-      let statusClass = 'status-2xx';
-      if (call.status >= 400 && call.status < 500) statusClass = 'status-4xx';
-      else if (call.status >= 500) statusClass = 'status-5xx';
-      document.getElementById('modalStatus').className = `status-code-badge ${statusClass}`;
-
-      document.getElementById('modalDuration').textContent = call.durationMs < 1000 ? `${call.durationMs.toFixed(0)} ms` : `${(call.durationMs/1000).toFixed(2)} s`;
-      document.getElementById('modalTimestamp').textContent = call.timeStr;
-      document.getElementById('modalUrl').textContent = window.location.origin + call.endpoint;
-      document.getElementById('modalReqBody').textContent = JSON.stringify(call.requestPayload || {}, null, 2);
-      document.getElementById('modalResBody').textContent = JSON.stringify(call.responsePayload || {}, null, 2);
-
+      populateModalData(call);
       document.getElementById('inspectModal').style.display = 'flex';
     }
 
-    function closeInspectModal(e) {
+    function populateModalData(call) {
+      document.getElementById('modalTitle').textContent = `API Call #${call.id}: ${call.method} ${call.endpoint}`;
+      document.getElementById('modalMethod').textContent = call.method;
+      document.getElementById('modalMethod').className = `method-tag method-${call.method.toLowerCase()}`;
+
+      const statusEl = document.getElementById('modalStatus');
+      if (call.inFlight) {
+        statusEl.className = 'status-code-badge status-inflight';
+        statusEl.innerHTML = '<span class="spinner" style="width:9px;height:9px;border-width:1.5px;"></span> IN FLIGHT';
+        document.getElementById('modalDuration').textContent = 'In progress...';
+      } else {
+        let statusClass = 'status-2xx';
+        if (call.status >= 400 && call.status < 500) statusClass = 'status-4xx';
+        else if (call.status >= 500 || call.status === 0) statusClass = 'status-5xx';
+        statusEl.className = `status-code-badge ${statusClass}`;
+        statusEl.textContent = `${call.status || 'ERR'} ${call.statusText || ''}`;
+        document.getElementById('modalDuration').textContent = call.durationMs < 1000 ? `${call.durationMs.toFixed(0)} ms` : `${(call.durationMs/1000).toFixed(2)} s`;
+      }
+
+      document.getElementById('modalTimestamp').textContent = call.timeStr;
+      document.getElementById('modalUrl').textContent = window.location.origin + call.endpoint;
+      document.getElementById('modalReqBody').textContent = JSON.stringify(call.requestPayload || {}, null, 2);
+      document.getElementById('modalResBody').textContent = call.inFlight ? '{\n  "status": "In flight, waiting for response..."\n}' : JSON.stringify(call.responsePayload || {}, null, 2);
+    }
+
+    function closeInspectModal() {
       document.getElementById('inspectModal').style.display = 'none';
+      inspectedCallIndex = null;
     }
 
     function copyModalCurl() {
@@ -1249,24 +1387,9 @@
 
     // Load initial health diagnostics on boot
     async function fetchHealthDiagnostics() {
-      const t0 = performance.now();
       try {
-        const res = await fetch('/api/v1/health');
-        const duration = performance.now() - t0;
-        const data = await res.json().catch(() => ({}));
-
-        recordApiCall({
-          timeStr: new Date().toLocaleTimeString(),
-          method: 'GET',
-          endpoint: '/api/v1/health',
-          status: res.status,
-          statusText: res.statusText,
-          durationMs: duration,
-          requestPayload: null,
-          responsePayload: data
-        });
-
-        if (!res.ok) throw new Error('Health check failed: ' + res.status);
+        const res = await executeApiCall({ method: 'GET', endpoint: '/api/v1/health' });
+        const data = res.data;
 
         const statusPill = document.getElementById('statusPill');
         statusPill.className = 'pill pill-green';
@@ -1364,18 +1487,35 @@
       const lang = document.getElementById('langSelect').value || null;
       const engine = document.getElementById('engineSelect').value || null;
       const wordTimestamps = document.getElementById('wordTimestamps').checked;
+      const bypassCache = document.getElementById('bypassCacheToggle').checked;
 
       startMainStopwatch(mode.toUpperCase());
 
       try {
         if (mode === 'metadata') {
-          await runMetadataCall(url);
+          // Single step: Metadata Only
+          await runMetadataCall(url, bypassCache);
           stopMainStopwatch('Completed (Metadata Only)');
         } else if (mode === 'audio') {
-          await runAudioCall(url);
+          // Two steps: Metadata then Audio extraction
+          await runMetadataCall(url, bypassCache);
+          await runAudioCall(url, bypassCache);
           stopMainStopwatch('Completed (Audio Only)');
         } else if (mode === 'transcribe') {
-          await runTranscribeCall(url, lang, engine, wordTimestamps);
+          // STRICT SEQUENTIAL CHAINING:
+          // Step 1: Metadata resolution (Step 1 active & counting; Step 2 & 3 Idle)
+          const metaData = await runMetadataCall(url, bypassCache);
+          if (metaData.exceeds_duration_limit) {
+            throw new Error(`Video exceeds 20-minute operational limit (${metaData.duration_formatted}). Pipeline rejected.`);
+          }
+
+          // Step 2: 16kHz Audio & Size Guard (Step 1 Completed 200 OK; Step 2 active & counting; Step 3 is STILL Idle!)
+          const audioData = await runAudioCall(url, bypassCache);
+          const jobId = audioData.job_id;
+
+          // Step 3: Whisper Transcription (Step 1 & 2 Completed 200 OK; Step 3 ONLY NOW fires and counts in order!)
+          await runJobTranscribeCall(jobId, lang, engine, wordTimestamps, bypassCache, metaData.duration_seconds);
+
           stopMainStopwatch('Completed (Full Pipeline)');
         }
       } catch (err) {
@@ -1386,233 +1526,115 @@
       }
     }
 
-    // Call 1: POST /api/v1/metadata
-    async function runMetadataCall(url) {
+    // STEP 1: POST /api/v1/metadata
+    async function runMetadataCall(url, bypassCache) {
       const stepEl = document.getElementById('stepMeta');
       stepEl.className = 'step-card active';
       document.getElementById('stepMetaText').innerHTML = '<span class="spinner"></span> Resolving...';
       startStepTimer('stepMeta', 'stepMetaLatency');
 
-      const payload = { url: url };
-      const t0 = performance.now();
-      let res = null;
-      let data = null;
+      const payload = { url: url, bypass_cache: bypassCache };
 
       try {
-        res = await fetch('/api/v1/metadata', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        data = await res.json().catch(() => ({}));
-      } catch (networkErr) {
-        const duration = performance.now() - t0;
-        stopStepTimer('stepMetaLatency', duration);
-        recordApiCall({
-          timeStr: new Date().toLocaleTimeString(),
+        const res = await executeApiCall({
           method: 'POST',
           endpoint: '/api/v1/metadata',
-          status: 0,
-          statusText: 'Network Error',
-          durationMs: duration,
-          requestPayload: payload,
-          responsePayload: { error: networkErr.message }
+          payload: payload,
         });
-        throw networkErr;
-      }
 
-      const duration = performance.now() - t0;
-      stopStepTimer('stepMetaLatency', duration);
+        stopStepTimer('stepMetaLatency', res.durationMs);
+        stepEl.className = 'step-card success';
+        document.getElementById('stepMetaText').textContent = res.data.cached ? '200 OK (Cached)' : '200 OK';
 
-      recordApiCall({
-        timeStr: new Date().toLocaleTimeString(),
-        method: 'POST',
-        endpoint: '/api/v1/metadata',
-        status: res.status,
-        statusText: res.statusText,
-        durationMs: duration,
-        requestPayload: payload,
-        responsePayload: data
-      });
+        const durSec = (res.durationMs / 1000).toFixed(2);
+        document.getElementById('metricMeta').textContent = res.durationMs < 1000 ? `${res.durationMs.toFixed(0)}ms` : `${durSec}s`;
+        document.getElementById('metricTotal').textContent = `${durSec}s`;
 
-      document.getElementById('metricMeta').textContent = duration < 1000 ? `${duration.toFixed(0)}ms` : `${(duration/1000).toFixed(2)}s`;
-      document.getElementById('metricTotal').textContent = (duration/1000).toFixed(2) + 's';
-
-      if (!res.ok) {
+        renderMetadata(res.data);
+        return res.data;
+      } catch (err) {
+        stopStepTimer('stepMetaLatency', 0);
         stepEl.className = 'step-card failed';
-        document.getElementById('stepMetaText').textContent = `${res.status} Error`;
-        throw new Error(`Metadata call failed (${res.status}): ${data.detail || res.statusText}`);
+        document.getElementById('stepMetaText').textContent = `${err.status || 'ERR'} Error`;
+        throw err;
       }
-
-      stepEl.className = 'step-card success';
-      document.getElementById('stepMetaText').textContent = '200 OK';
-
-      renderMetadata(data);
     }
 
-    // Call 2: POST /api/v1/extract-audio
-    async function runAudioCall(url) {
-      const stepMeta = document.getElementById('stepMeta');
+    // STEP 2: POST /api/v1/extract-audio
+    async function runAudioCall(url, bypassCache) {
       const stepAudio = document.getElementById('stepAudio');
-
-      stepMeta.className = 'step-card active';
       stepAudio.className = 'step-card active';
       document.getElementById('stepAudioText').innerHTML = '<span class="spinner"></span> Extracting 16kHz MP3...';
       startStepTimer('stepAudio', 'stepAudioLatency');
 
-      const payload = { url: url };
-      const t0 = performance.now();
-      let res = null;
-      let data = null;
+      const payload = { url: url, bypass_cache: bypassCache };
 
       try {
-        res = await fetch('/api/v1/extract-audio', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        data = await res.json().catch(() => ({}));
-      } catch (networkErr) {
-        const duration = performance.now() - t0;
-        stopStepTimer('stepAudioLatency', duration);
-        recordApiCall({
-          timeStr: new Date().toLocaleTimeString(),
+        const res = await executeApiCall({
           method: 'POST',
           endpoint: '/api/v1/extract-audio',
-          status: 0,
-          statusText: 'Network Error',
-          durationMs: duration,
-          requestPayload: payload,
-          responsePayload: { error: networkErr.message }
+          payload: payload,
         });
-        throw networkErr;
-      }
 
-      const duration = performance.now() - t0;
-      stopStepTimer('stepAudioLatency', duration);
+        stopStepTimer('stepAudioLatency', res.durationMs);
+        stepAudio.className = 'step-card success';
+        document.getElementById('stepAudioText').textContent = res.data.cached ? '200 OK (Cached)' : '200 OK';
 
-      recordApiCall({
-        timeStr: new Date().toLocaleTimeString(),
-        method: 'POST',
-        endpoint: '/api/v1/extract-audio',
-        status: res.status,
-        statusText: res.statusText,
-        durationMs: duration,
-        requestPayload: payload,
-        responsePayload: data
-      });
+        const durSec = (res.durationMs / 1000).toFixed(2);
+        document.getElementById('metricAudio').textContent = res.durationMs < 1000 ? `${res.durationMs.toFixed(0)}ms` : `${durSec}s`;
 
-      document.getElementById('metricAudio').textContent = duration < 1000 ? `${duration.toFixed(0)}ms` : `${(duration/1000).toFixed(2)}s`;
-      document.getElementById('metricTotal').textContent = (duration/1000).toFixed(2) + 's';
-
-      if (!res.ok) {
+        activeJobId = res.data.job_id;
+        renderAudio(res.data.audio_path, res.data.audio_size_bytes, res.data.job_id, res.data.cached);
+        return res.data;
+      } catch (err) {
+        stopStepTimer('stepAudioLatency', 0);
         stepAudio.className = 'step-card failed';
-        document.getElementById('stepAudioText').textContent = `${res.status} Error`;
-        throw new Error(`Audio extraction failed (${res.status}): ${data.detail || res.statusText}`);
+        document.getElementById('stepAudioText').textContent = `${err.status || 'ERR'} Error`;
+        throw err;
       }
-
-      stepMeta.className = 'step-card success';
-      stepMeta.querySelector('#stepMetaText').textContent = '200 OK';
-      stepAudio.className = 'step-card success';
-      document.getElementById('stepAudioText').textContent = '200 OK';
-
-      activeJobId = data.job_id;
-      renderMetadata(data.meta);
-      renderAudio(data.audio_path, data.audio_size_bytes, data.job_id);
     }
 
-    // Call 3: POST /api/v1/transcribe
-    async function runTranscribeCall(url, lang, engine, wordTimestamps) {
-      const stepMeta = document.getElementById('stepMeta');
-      const stepAudio = document.getElementById('stepAudio');
+    // STEP 3: POST /api/v1/jobs/{job_id}/transcribe
+    async function runJobTranscribeCall(jobId, lang, engine, wordTimestamps, bypassCache, videoDurationSec = null) {
       const stepSTT = document.getElementById('stepSTT');
-
-      stepMeta.className = 'step-card active';
-      stepAudio.className = 'step-card active';
       stepSTT.className = 'step-card active';
-
-      document.getElementById('stepMetaText').textContent = 'Resolving...';
-      document.getElementById('stepAudioText').textContent = 'Queued';
-      document.getElementById('stepSTTText').innerHTML = '<span class="spinner"></span> Transcribing...';
+      document.getElementById('stepSTTText').innerHTML = '<span class="spinner"></span> Transcribing with Whisper...';
       startStepTimer('stepSTT', 'stepSTTLatency');
 
-      const payload = { url: url };
+      const payload = {
+        bypass_cache: bypassCache,
+        word_timestamps: wordTimestamps,
+      };
       if (lang) payload.language = lang;
       if (engine) payload.force_engine = engine;
-      if (wordTimestamps) payload.word_timestamps = true;
-
-      const t0 = performance.now();
-      let res = null;
-      let data = null;
 
       try {
-        res = await fetch('/api/v1/transcribe', {
+        const res = await executeApiCall({
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+          endpoint: `/api/v1/jobs/${jobId}/transcribe`,
+          payload: payload,
         });
-        data = await res.json().catch(() => ({}));
-      } catch (networkErr) {
-        const duration = performance.now() - t0;
-        stopStepTimer('stepSTTLatency', duration);
-        recordApiCall({
-          timeStr: new Date().toLocaleTimeString(),
-          method: 'POST',
-          endpoint: '/api/v1/transcribe',
-          status: 0,
-          statusText: 'Network Error',
-          durationMs: duration,
-          requestPayload: payload,
-          responsePayload: { error: networkErr.message }
-        });
-        throw networkErr;
-      }
 
-      const duration = performance.now() - t0;
-      stopStepTimer('stepSTTLatency', duration);
+        stopStepTimer('stepSTTLatency', res.durationMs);
+        stepSTT.className = 'step-card success';
+        document.getElementById('stepSTTText').textContent = res.data.cached ? '200 OK (Cached)' : '200 OK';
 
-      recordApiCall({
-        timeStr: new Date().toLocaleTimeString(),
-        method: 'POST',
-        endpoint: '/api/v1/transcribe',
-        status: res.status,
-        statusText: res.statusText,
-        durationMs: duration,
-        requestPayload: payload,
-        responsePayload: data
-      });
+        const durSec = (res.durationMs / 1000).toFixed(2);
+        document.getElementById('metricSTT').textContent = `${durSec}s`;
 
-      const totalSec = (duration / 1000).toFixed(2);
-      document.getElementById('metricSTT').textContent = totalSec + 's';
-      document.getElementById('metricTotal').textContent = totalSec + 's';
-
-      if (!res.ok) {
-        stepSTT.className = 'step-card failed';
-        document.getElementById('stepSTTText').textContent = `${res.status} Error`;
-        throw new Error(`Pipeline failed (${res.status}): ${data.detail || res.statusText}`);
-      }
-
-      stepMeta.className = 'step-card success';
-      stepMeta.querySelector('#stepMetaText').textContent = '200 OK';
-      stepAudio.className = 'step-card success';
-      stepAudio.querySelector('#stepAudioText').textContent = '200 OK';
-      stepSTT.className = 'step-card success';
-      document.getElementById('stepSTTText').textContent = '200 OK';
-
-      activeJobId = data.job_id;
-      if (data.meta) {
-        renderMetadata(data.meta);
         // Calculate Real-Time Factor (RTF)
-        if (data.meta.duration_seconds && duration > 0) {
-          const rtf = (data.meta.duration_seconds / (duration / 1000)).toFixed(1);
+        if (videoDurationSec && res.durationMs > 0) {
+          const rtf = (videoDurationSec / (res.durationMs / 1000)).toFixed(1);
           document.getElementById('metricRTF').textContent = `${rtf}x Real-Time`;
         }
-      }
-      if (data.audio_size_bytes) {
-        renderAudio(`/api/v1/jobs/${data.job_id}/audio`, data.audio_size_bytes, data.job_id);
-      }
-      if (data.transcript) {
-        renderTranscript(data.transcript, data.execution_time_seconds || (duration/1000).toFixed(2));
+
+        renderTranscript(res.data.transcript, res.data.execution_time_seconds || durSec, res.data.cached);
+        return res.data;
+      } catch (err) {
+        stopStepTimer('stepSTTLatency', 0);
+        stepSTT.className = 'step-card failed';
+        document.getElementById('stepSTTText').textContent = `${err.status || 'ERR'} Error`;
+        throw err;
       }
     }
 
@@ -1652,16 +1674,17 @@
       } else {
         banner.className = 'guardrail-alert guardrail-pass';
         bannerIcon.innerHTML = '&#10003;';
-        bannerText.textContent = `PASS: Video is ${meta.duration_formatted} (<= 20 mins / 1,200s). Permitted for STT.`;
-        statusPill.className = 'pill pill-green';
-        statusPill.textContent = 'Within Limit';
+        const cacheNote = meta.cached ? ' [Cached Environment]' : ' [Live Resolution]';
+        bannerText.textContent = `PASS: Video is ${meta.duration_formatted} (<= 20 mins / 1,200s). Permitted for STT.${cacheNote}`;
+        statusPill.className = meta.cached ? 'pill pill-green' : 'pill pill-blue';
+        statusPill.textContent = meta.cached ? '\u26A1 Cached' : 'Within Limit';
       }
 
       document.getElementById('rawMetaJson').textContent = JSON.stringify(meta, null, 2);
     }
 
     // Render Audio Card
-    function renderAudio(audioPath, sizeBytes, jobId) {
+    function renderAudio(audioPath, sizeBytes, jobId, isCached = false) {
       document.getElementById('audioEmptyState').style.display = 'none';
       document.getElementById('audioContent').style.display = 'block';
 
@@ -1681,9 +1704,10 @@
         statusPill.textContent = '> 25 MB';
       } else {
         banner.className = 'guardrail-alert guardrail-pass';
-        bannerText.textContent = `PASS: Audio size is ${sizeMb} MB (<= 25.00 MB ceiling).`;
-        statusPill.className = 'pill pill-green';
-        statusPill.textContent = `${sizeMb} MB`;
+        const cacheMsg = isCached ? ' [Loaded from Cache]' : '';
+        bannerText.textContent = `PASS: Audio size is ${sizeMb} MB (<= 25.00 MB ceiling).${cacheMsg}`;
+        statusPill.className = isCached ? 'pill pill-green' : 'pill pill-blue';
+        statusPill.textContent = isCached ? '\u26A1 Cached MP3' : `${sizeMb} MB`;
       }
 
       // Configure Audio Player
@@ -1696,7 +1720,7 @@
     }
 
     // Render Transcript Card
-    function renderTranscript(transcript, execSeconds) {
+    function renderTranscript(transcript, execSeconds, isCached = false) {
       currentTranscriptData = transcript;
 
       document.getElementById('sttEmptyState').style.display = 'none';
@@ -1708,8 +1732,8 @@
       document.getElementById('totalTimePill').textContent = execSeconds ? `Latency: ${execSeconds}s` : 'Completed';
 
       const statusPill = document.getElementById('sttStatusPill');
-      statusPill.className = 'pill pill-green';
-      statusPill.textContent = 'Transcribed';
+      statusPill.className = isCached ? 'pill pill-green' : 'pill pill-blue';
+      statusPill.textContent = isCached ? '\u26A1 Cached STT' : 'Transcribed';
 
       // Full text
       document.getElementById('transcriptText').textContent = transcript.text || '(Empty audio / no speech detected)';
@@ -1763,21 +1787,29 @@
       });
     }
 
-    function downloadArtifact(fmt) {
+    async function downloadArtifact(fmt) {
       if (!activeJobId) return;
-      const t0 = performance.now();
       const endpoint = `/api/v1/jobs/${activeJobId}/transcript?format=${fmt}`;
-      window.open(endpoint, '_blank');
-      recordApiCall({
-        timeStr: new Date().toLocaleTimeString(),
-        method: 'GET',
-        endpoint: endpoint,
-        status: 200,
-        statusText: 'Downloaded',
-        durationMs: performance.now() - t0,
-        requestPayload: null,
-        responsePayload: { format: fmt, jobId: activeJobId }
-      });
+      try {
+        const res = await executeApiCall({ method: 'GET', endpoint: endpoint, payload: null });
+        let textContent = '';
+        if (fmt === 'json') {
+          textContent = JSON.stringify(res.data, null, 2);
+        } else {
+          textContent = typeof res.data === 'string' ? res.data : (res.data.text || res.data.responseText || '');
+        }
+        const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = `${activeJobId}.${fmt}`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(blobUrl);
+      } catch (err) {
+        showError(`Failed to download transcript format ${fmt}: ${err.message}`);
+      }
     }
 
     // Initialize diagnostics on window load

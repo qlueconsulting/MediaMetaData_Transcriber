@@ -12,6 +12,10 @@ class MediaMetadataRequest(BaseModel):
         description="Public URL of the media (YouTube, Vimeo, Twitter, direct stream, etc.)",
         examples=["https://www.youtube.com/watch?v=dQw4w9WgXcQ"],
     )
+    bypass_cache: bool = Field(
+        default=False,
+        description="If True, bypasses any cached metadata and forces a fresh query to the provider",
+    )
 
 
 class MediaMetadataResponse(BaseModel):
@@ -88,6 +92,14 @@ class MediaMetadataResponse(BaseModel):
     created_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat(),
         description="ISO 8601 UTC timestamp of metadata extraction",
+    )
+    cached: bool = Field(
+        default=False,
+        description="True if metadata was served from the local persistent storage cache",
+    )
+    cached_job_id: Optional[str] = Field(
+        default=None,
+        description="Job ID where cached metadata was retrieved from",
     )
     raw_info: Optional[Dict[str, Any]] = Field(
         default=None,

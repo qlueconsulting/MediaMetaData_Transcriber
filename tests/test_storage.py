@@ -91,3 +91,38 @@ class TestStorageService:
         # Delete job
         assert storage.delete_job(job_id) is True
         assert storage.get_job_summary(job_id)["exists"] is False
+
+    def test_find_job_by_url_and_caching(self, tmp_path):
+        """find_job_by_url must find cached jobs by exact and normalized URLs with optional file requirements."""
+        from app.services.storage import normalize_url
+
+        # Test URL normalization
+        assert normalize_url("https://youtu.be/dQw4w9WgXcQ") == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        assert normalize_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=10s") == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+        storage = StorageService(base_dir=tmp_path)
+        job_id = "job-cache-001"
+        url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+        # Not found initially
+        assert storage.find_job_by_url(url) is None
+
+        # Save metadata
+        storage.save_meta(job_id, {"url": url, "title": "Never Gonna Give You Up"})
+
+        # Found by full URL and by youtu.be short URL
+        assert storage.find_job_by_url(url) == job_id
+        assert storage.find_job_by_url("https://youtu.be/dQw4w9WgXcQ") == job_id
+
+        # require_audio fails because audio.mp3 doesn't exist yet
+        assert storage.find_job_by_url(url, require_audio=True) is None
+
+        # Add audio.mp3
+        storage.get_audio_path(job_id).write_bytes(b"\x00" * 100)
+        assert storage.find_job_by_url(url, require_audio=True) == job_id
+
+        # require_transcript fails until transcript.json exists
+        assert storage.find_job_by_url(url, require_transcript=True) is None
+        storage.save_transcript(job_id, {"text": "Never gonna let you down"})
+        assert storage.find_job_by_url(url, require_transcript=True) == job_id
+

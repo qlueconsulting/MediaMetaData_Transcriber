@@ -27,6 +27,14 @@ class TranscribeRequest(BaseModel):
         description="Public URL of the media",
         examples=["https://www.youtube.com/watch?v=dQw4w9WgXcQ"],
     )
+    bypass_cache: bool = Field(
+        default=False,
+        description="If True, bypasses any cached audio and transcript, forcing a fresh download and GPU transcription",
+    )
+    job_id: Optional[str] = Field(
+        default=None,
+        description="Optional pre-existing job ID to attach to or transcribe existing audio for",
+    )
     language: Optional[str] = Field(
         default=None,
         description="Optional language code ISO-639-1 (e.g. 'en', 'es'). Auto-detected if omitted.",
@@ -42,6 +50,30 @@ class TranscribeRequest(BaseModel):
     force_engine: Optional[str] = Field(
         default=None,
         description="Override engine: 'cuda', 'groq', or 'cpu'",
+    )
+
+
+class JobTranscribeRequest(BaseModel):
+    """Payload to transcribe audio for an already extracted job."""
+    language: Optional[str] = Field(
+        default=None,
+        description="Optional language code ISO-639-1 (e.g. 'en', 'es'). Auto-detected if omitted.",
+    )
+    prompt: Optional[str] = Field(
+        default=None,
+        description="Optional prompt / vocabulary guidance for Whisper",
+    )
+    word_timestamps: bool = Field(
+        default=False,
+        description="Extract word-level timestamps in segments",
+    )
+    force_engine: Optional[str] = Field(
+        default=None,
+        description="Override engine: 'cuda', 'groq', or 'cpu'",
+    )
+    bypass_cache: bool = Field(
+        default=False,
+        description="If True, bypasses any cached transcript.json and re-runs Whisper inference",
     )
 
 
@@ -61,6 +93,10 @@ class JobResponse(BaseModel):
     execution_time_seconds: Optional[float] = Field(
         default=None,
         description="Total processing time in seconds",
+    )
+    cached: bool = Field(
+        default=False,
+        description="True if this response was served from existing persistent storage cache",
     )
     meta: Optional[MediaMetadataResponse] = Field(
         default=None,
@@ -91,6 +127,10 @@ class ExtractAudioResponse(BaseModel):
     meta: MediaMetadataResponse = Field(..., description="Extracted video metadata")
     audio_size_bytes: int = Field(..., description="Size of generated audio.mp3 in bytes")
     audio_path: str = Field(..., description="Storage path to audio.mp3")
+    cached: bool = Field(
+        default=False,
+        description="True if audio was served from existing persistent storage cache",
+    )
     created_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat(),
     )

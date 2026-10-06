@@ -215,3 +215,169 @@ class TestTranscriptionAndAudioExtractionGuardrails:
             assert tr_vtt.status_code == 200
             assert "WEBVTT" in tr_vtt.text
             assert "00:00:00.000 --> 00:00:04.000" in tr_vtt.text
+
+    def test_metadata_caching_and_bypass(self, client: TestClient):
+        """Test metadata caching and bypass_cache flag behavior."""
+        from app.services.storage import storage_service
+
+        job_id = "cached-meta-job"
+        test_url = "https://www.youtube.com/watch?v=cached123"
+        storage_service.save_meta(job_id, {
+            "url": test_url,
+            "title": "Cached Title",
+            "creator": "Cached Creator",
+            "duration_seconds": 120,
+            "duration_formatted": "02:00",
+            "platform": "youtube",
+            "exceeds_duration_limit": False,
+            "allowed_for_transcription": True,
+        })
+
+        # By default bypass_cache is False -> returns cached metadata
+        res = client.post("/api/v1/metadata", json={"url": test_url})
+        assert res.status_code == 200
+        data = res.json()
+        assert data["title"] == "Cached Title"
+        assert data["cached"] is True
+        assert data["cached_job_id"] == job_id
+
+        # With bypass_cache=True, mock yt-dlp to prove it bypassed cache
+        with patch("yt_dlp.YoutubeDL") as mock_ydl:
+            mock_inst = MagicMock()
+            mock_inst.extract_info.return_value = {
+                "id": "cached123",
+                "title": "Fresh Title from YTDLP",
+                "duration": 120,
+                "extractor": "youtube",
+            }
+            mock_ydl.return_value.__enter__.return_value = mock_inst
+
+            bypass_res = client.post("/api/v1/metadata", json={"url": test_url, "bypass_cache": True})
+            assert bypass_res.status_code == 200
+            bypass_data = bypass_res.json()
+            assert bypass_data["title"] == "Fresh Title from YTDLP"
+            assert bypass_data["cached"] is False
+
+    def test_job_transcribe_endpoint_and_cache(self, client: TestClient):
+        """Test POST /api/v1/jobs/{job_id}/transcribe for pre-extracted audio."""
+        from app.services.storage import storage_service
+        from app.models.transcript import TranscriptData, TranscriptSegment
+
+        job_id = "modular-job-001"
+        audio_file = storage_service.get_audio_path(job_id)
+        audio_file.parent.mkdir(parents=True, exist_ok=True)
+        audio_file.write_bytes(b"\x00" * 2048)
+
+        storage_service.save_meta(job_id, {
+            "url": "https://www.youtube.com/watch?v=modular123",
+            "title": "Modular Audio Job",
+            "duration_seconds": 60,
+            "duration_formatted": "01:00",
+            "exceeds_duration_limit": False,
+            "allowed_for_transcription": True,
+        })
+
+        mock_transcript = TranscriptData(
+            job_id=job_id,
+            text="Modular transcription test passed.",
+            language="en",
+            duration_seconds=60.0,
+            engine="faster-whisper-cuda",
+            model="large-v3",
+            segments=[
+                TranscriptSegment(id=0, start=0.0, end=2.0, text="Modular transcription test passed.")
+            ],
+        )
+
+        with patch("app.services.transcription.transcription_orchestrator.transcribe", return_value=mock_transcript):
+            # 1. Transcribe the existing job
+            res = client.post(f"/api/v1/jobs/{job_id}/transcribe", json={"bypass_cache": False})
+            assert res.status_code == 200
+            data = res.json()
+            assert data["status"] == "completed"
+            assert data["transcript"]["text"] == "Modular transcription test passed."
+            assert data["cached"] is False
+
+            # 2. Transcribe again with bypass_cache=False -> returns cached: True instantly
+            res_cached = client.post(f"/api/v1/jobs/{job_id}/transcribe", json={"bypass_cache": False})
+            assert res_cached.status_code == 200
+            assert res_cached.json()["cached"] is True
+
+            # 3. Requesting a nonexistent job returns 400
+            res_missing = client.post("/api/v1/jobs/nonexistent-id/transcribe", json={})
+            assert res_missing.status_code == 400
+
+    def test_transcribe_cache_hit_and_bypass(self, client: TestClient):
+        """Test POST /api/v1/transcribe returns cached result when available and bypasses when requested."""
+        from app.services.storage import storage_service
+        from app.models.transcript import TranscriptData, TranscriptSegment
+
+        job_id = "cached-full-job"
+        test_url = "https://www.youtube.com/watch?v=fullcache123"
+
+        storage_service.save_meta(job_id, {
+            "url": test_url,
+            "title": "Full Cache Title",
+            "duration_seconds": 90,
+            "duration_formatted": "01:30",
+            "exceeds_duration_limit": False,
+            "allowed_for_transcription": True,
+        })
+        storage_service.save_transcript(job_id, {
+            "job_id": job_id,
+            "text": "Cached full transcription text.",
+            "language": "en",
+            "duration_seconds": 90.0,
+            "engine": "faster-whisper-cuda",
+            "model": "large-v3",
+            "segments": [],
+        })
+        storage_service.get_audio_path(job_id).write_bytes(b"\x00" * 500)
+
+        # 1. Without bypass_cache, returns cached immediately
+        res = client.post("/api/v1/transcribe", json={"url": test_url, "bypass_cache": False})
+        assert res.status_code == 200
+        data = res.json()
+        assert data["cached"] is True
+        assert data["job_id"] == job_id
+        assert data["transcript"]["text"] == "Cached full transcription text."
+
+        # 2. With bypass_cache=True, executes freshly
+        fresh_meta = MediaMetadataResponse(
+            url=test_url,
+            title="Fresh Live Title",
+            duration_seconds=90,
+            duration_formatted="01:30",
+            exceeds_duration_limit=False,
+            allowed_for_transcription=True,
+        )
+        fresh_transcript = TranscriptData(
+            job_id="new-fresh-id",
+            text="Freshly transcribed live text.",
+            language="en",
+            duration_seconds=90.0,
+            engine="faster-whisper-cuda",
+            model="large-v3",
+            segments=[],
+        )
+
+        with patch("app.services.media.media_service.extract_metadata", return_value=fresh_meta), \
+             patch("app.services.media.media_service.download_and_extract_audio") as mock_dl, \
+             patch("app.services.transcription.transcription_orchestrator.transcribe", return_value=fresh_transcript):
+
+            def fake_fresh_dl(url, job_id, pre_extracted_meta=None, **kwargs):
+                audio_file = storage_service.get_audio_path(job_id)
+                audio_file.parent.mkdir(parents=True, exist_ok=True)
+                audio_file.write_bytes(b"\x00" * 600)
+                storage_service.save_meta(job_id, fresh_meta.model_dump())
+                return audio_file, fresh_meta
+
+            mock_dl.side_effect = fake_fresh_dl
+
+            bypass_res = client.post("/api/v1/transcribe", json={"url": test_url, "bypass_cache": True})
+            assert bypass_res.status_code == 200
+            bypass_data = bypass_res.json()
+            assert bypass_data["cached"] is False
+            assert bypass_data["transcript"]["text"] == "Freshly transcribed live text."
+
+

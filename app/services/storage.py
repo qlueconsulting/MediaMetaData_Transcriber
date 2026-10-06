@@ -8,6 +8,30 @@ from app.config import settings
 from app.utils.logger import log
 
 
+def normalize_url(url: str) -> str:
+    """Normalize a media URL for consistent cache matching."""
+    if not url:
+        return ""
+    url = url.strip()
+    try:
+        from urllib.parse import urlparse, parse_qs, urlunparse
+        parsed = urlparse(url)
+        netloc = parsed.netloc.lower()
+        # YouTube normalization
+        if "youtu.be" in netloc:
+            video_id = parsed.path.lstrip("/")
+            return f"https://www.youtube.com/watch?v={video_id}"
+        if "youtube.com" in netloc:
+            qs = parse_qs(parsed.query)
+            if "v" in qs:
+                return f"https://www.youtube.com/watch?v={qs['v'][0]}"
+        # Standard normalization: drop trailing slashes, query params, fragments
+        path = parsed.path.rstrip("/")
+        return urlunparse((parsed.scheme.lower(), netloc, path, "", "", ""))
+    except Exception:
+        return url.rstrip("/").lower()
+
+
 class StorageService:
     """Manages files in /srv/storage/jobs/{job_id}/:
 
@@ -90,6 +114,61 @@ class StorageService:
         audio_path = self.get_audio_path(job_id)
         if audio_path.is_file():
             return audio_path.stat().st_size
+        return None
+
+    def find_job_by_url(
+        self,
+        url: str,
+        require_audio: bool = False,
+        require_transcript: bool = False,
+    ) -> Optional[str]:
+        """Search persistent storage for a prior job matching the target URL.
+
+        Args:
+            url: The media URL to search for.
+            require_audio: If True, only match jobs that have audio.mp3.
+            require_transcript: If True, only match jobs that have transcript.json.
+
+        Returns:
+            The job_id of the most recently modified matching job, or None.
+        """
+        if not self.base_dir.is_dir():
+            return None
+
+        target_norm = normalize_url(url)
+        clean_url = url.strip()
+
+        dirs = []
+        for child in self.base_dir.iterdir():
+            if child.is_dir():
+                try:
+                    dirs.append((child.stat().st_mtime, child))
+                except OSError:
+                    continue
+        dirs.sort(key=lambda x: x[0], reverse=True)
+
+        for _, child in dirs:
+            meta_path = child / "meta.json"
+            if not meta_path.is_file():
+                continue
+            try:
+                with open(meta_path, "r", encoding="utf-8") as f:
+                    meta = json.load(f)
+                meta_url = meta.get("url", "")
+                if meta_url == clean_url or normalize_url(meta_url) == target_norm:
+                    if require_audio and not self.has_audio(child.name):
+                        continue
+                    if require_transcript and not self.get_transcript_path(child.name).is_file():
+                        continue
+                    log.info(
+                        f"Cache hit for URL {url} -> Job {child.name} "
+                        f"(audio={require_audio}, transcript={require_transcript})"
+                    )
+                    return child.name
+            except Exception as e:
+                log.warning(f"Error checking cache for job {child.name}: {e}")
+                continue
+
         return None
 
     def get_job_summary(self, job_id: str) -> Dict[str, Any]:
