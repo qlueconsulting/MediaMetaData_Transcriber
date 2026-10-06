@@ -1,0 +1,71 @@
+services:
+  transcriber:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mediametadata-transcriber:latest
+    container_name: mediametadata_transcriber
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      # Server settings
+      - HOST=0.0.0.0
+      - PORT=8000
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DEBUG=${DEBUG:-false}
+
+      # Persistent storage paths
+      - STORAGE_DIR=/srv/storage/jobs
+      - MODEL_DIR=/srv/storage/models
+
+      # Guardrails (Strict Operational Criteria)
+      - MAX_DURATION_SECONDS=${MAX_DURATION_SECONDS:-1200}
+      - MAX_AUDIO_SIZE_BYTES=${MAX_AUDIO_SIZE_BYTES:-26214400}
+      - AUDIO_SAMPLE_RATE=${AUDIO_SAMPLE_RATE:-16000}
+      - AUDIO_CHANNELS=${AUDIO_CHANNELS:-1}
+      - AUDIO_BITRATE=${AUDIO_BITRATE:-64k}
+
+      # GPU Whisper configuration (NVIDIA RTX 2060 Super 8GB)
+      - WHISPER_MODEL=${WHISPER_MODEL:-large-v3}
+      - WHISPER_DEVICE=${WHISPER_DEVICE:-cuda}
+      - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-float16}
+      - WHISPER_DEVICE_INDEX=${WHISPER_DEVICE_INDEX:-0}
+
+      # Groq Cloud Whisper API fallback
+      - ENABLE_GROQ_FALLBACK=${ENABLE_GROQ_FALLBACK:-true}
+      - FORCE_GROQ_FALLBACK=${FORCE_GROQ_FALLBACK:-false}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - GROQ_MODEL=${GROQ_MODEL:-whisper-large-v3-turbo}
+
+      # yt-dlp residential anti-throttling
+      - YTDLP_PLAYER_CLIENTS=${YTDLP_PLAYER_CLIENTS:-web,android}
+      - YTDLP_SOCKET_TIMEOUT=${YTDLP_SOCKET_TIMEOUT:-30}
+      - YTDLP_RETRIES=${YTDLP_RETRIES:-5}
+      - YTDLP_PROXY=${YTDLP_PROXY:-}
+
+    volumes:
+      # Persistent storage mount points on host Ubuntu 24.04 server
+      - /srv/storage/jobs:/srv/storage/jobs
+      - /srv/storage/models:/srv/storage/models
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/v1/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
