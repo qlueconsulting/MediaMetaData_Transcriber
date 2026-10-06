@@ -42,8 +42,8 @@ venv.bak/
 # Storage directory (runtime data)
 /srv/storage/
 storage/
-jobs/
-models/
+/jobs/
+/models/
 
 # Unit test / coverage reports
 htmlcov/
