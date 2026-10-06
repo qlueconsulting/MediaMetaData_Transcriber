@@ -251,6 +251,15 @@
       background: #7c3aed;
     }
 
+    .btn-danger {
+      background: rgba(239, 68, 68, 0.2);
+      color: #fca5a5;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+    .btn-danger:hover:not(:disabled) {
+      background: rgba(239, 68, 68, 0.3);
+    }
+
     .action-row {
       display: flex;
       flex-wrap: wrap;
@@ -279,6 +288,75 @@
       cursor: pointer;
     }
 
+    /* Stopwatch & Live Timing Banner */
+    .stopwatch-banner {
+      background: linear-gradient(135deg, rgba(17, 24, 39, 0.95), rgba(31, 41, 61, 0.6));
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1.25rem;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.25);
+    }
+
+    .stopwatch-display {
+      display: flex;
+      align-items: baseline;
+      gap: 0.75rem;
+    }
+
+    .stopwatch-time {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 2rem;
+      font-weight: 700;
+      color: #60a5fa;
+      letter-spacing: -0.03em;
+      text-shadow: 0 0 15px rgba(96, 165, 250, 0.3);
+    }
+
+    .stopwatch-label {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      font-weight: 600;
+      color: var(--text-muted);
+      letter-spacing: 0.05em;
+    }
+
+    .timing-breakdown {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8rem;
+    }
+
+    .metric-chip {
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--card-border);
+      padding: 0.35rem 0.65rem;
+      border-radius: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+
+    .metric-chip-title {
+      font-size: 0.68rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .metric-chip-value {
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
     /* Diagnostics Stepper */
     .stepper {
       display: grid;
@@ -294,11 +372,12 @@
       padding: 0.85rem 1rem;
       position: relative;
       overflow: hidden;
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
 
     .step-card.active {
       border-color: var(--primary);
-      box-shadow: 0 0 10px var(--primary-glow);
+      box-shadow: 0 0 12px var(--primary-glow);
     }
 
     .step-card.success {
@@ -310,7 +389,7 @@
     }
 
     .step-title {
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       font-weight: 600;
       color: var(--text-muted);
       text-transform: uppercase;
@@ -330,9 +409,10 @@
     }
 
     .step-latency {
-      font-family: monospace;
-      font-size: 0.8rem;
-      color: var(--text-dim);
+      font-family: ui-monospace, monospace;
+      font-size: 0.85rem;
+      color: #93c5fd;
+      font-weight: 600;
     }
 
     /* Results layout */
@@ -478,7 +558,7 @@
     }
 
     .time-badge {
-      font-family: monospace;
+      font-family: ui-monospace, monospace;
       color: var(--primary);
       cursor: pointer;
       text-decoration: underline;
@@ -499,6 +579,96 @@
       padding: 0.35rem 0.65rem;
       font-size: 0.75rem;
       border-radius: 6px;
+    }
+
+    /* API Call History & Inspector */
+    .history-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+
+    .history-table th {
+      text-align: left;
+      padding: 0.5rem 0.75rem;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--card-border);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .history-table td {
+      padding: 0.6rem 0.75rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      vertical-align: middle;
+    }
+
+    .history-table tr:hover {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .method-tag {
+      font-family: ui-monospace, monospace;
+      font-weight: 700;
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.7rem;
+    }
+    .method-post { background: rgba(59, 130, 246, 0.2); color: #93c5fd; }
+    .method-get { background: rgba(16, 185, 129, 0.2); color: #6ee7b7; }
+    .method-delete { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
+
+    .status-code-badge {
+      font-family: ui-monospace, monospace;
+      font-weight: 700;
+      padding: 0.2rem 0.5rem;
+      border-radius: 9999px;
+      font-size: 0.72rem;
+    }
+    .status-2xx { background: var(--success-bg); color: var(--success); border: 1px solid rgba(16, 185, 129, 0.3); }
+    .status-4xx { background: var(--danger-bg); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.3); }
+    .status-5xx { background: rgba(220, 38, 38, 0.25); color: #f87171; border: 1px solid rgba(220, 38, 38, 0.4); }
+
+    /* Modal / Inspector Dialog */
+    .modal-backdrop {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      padding: 1rem;
+    }
+
+    .modal-dialog {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      max-width: 800px;
+      width: 100%;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    }
+
+    .modal-header {
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .modal-body {
+      padding: 1.25rem;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
     }
 
     /* Error alert */
@@ -528,7 +698,7 @@
       to { transform: rotate(360deg); }
     }
 
-    /* Raw JSON modal / collapsible */
+    /* Raw JSON & pre blocks */
     details {
       margin-top: 0.75rem;
       font-size: 0.8rem;
@@ -571,6 +741,39 @@
 
     <!-- Error Banner -->
     <div class="error-banner" id="errorBanner"></div>
+
+    <!-- Live Master Stopwatch & Performance Banner -->
+    <div class="stopwatch-banner">
+      <div>
+        <div class="stopwatch-label" id="stopwatchStatus">Stopwatch &bull; Ready</div>
+        <div class="stopwatch-display">
+          <span class="stopwatch-time" id="mainStopwatch">00:00.00</span>
+        </div>
+      </div>
+
+      <div class="timing-breakdown">
+        <div class="metric-chip">
+          <span class="metric-chip-title">Total Duration</span>
+          <span class="metric-chip-value" id="metricTotal">--</span>
+        </div>
+        <div class="metric-chip">
+          <span class="metric-chip-title">Step 1: Meta</span>
+          <span class="metric-chip-value" id="metricMeta">--</span>
+        </div>
+        <div class="metric-chip">
+          <span class="metric-chip-title">Step 2: Audio</span>
+          <span class="metric-chip-value" id="metricAudio">--</span>
+        </div>
+        <div class="metric-chip">
+          <span class="metric-chip-title">Step 3: Whisper</span>
+          <span class="metric-chip-value" id="metricSTT">--</span>
+        </div>
+        <div class="metric-chip" style="border-color: rgba(59, 130, 246, 0.4);">
+          <span class="metric-chip-title" style="color: #93c5fd;">Real-Time Factor</span>
+          <span class="metric-chip-value" id="metricRTF" style="color: #60a5fa;">--</span>
+        </div>
+      </div>
+    </div>
 
     <!-- Testing Apparatus Controls -->
     <div class="card">
@@ -788,6 +991,78 @@
       </div>
     </div>
 
+    <!-- NEW CARD: Complete API Call History & Network Inspector -->
+    <div class="card" id="historyCard">
+      <div class="card-header">
+        <div class="card-title">
+          <span>API Call History & Network Inspector</span>
+          <span class="pill pill-gray" id="historyCountPill">0 calls</span>
+        </div>
+        <div style="display: flex; gap: 0.5rem;">
+          <button class="btn-secondary btn-xs" onclick="exportCallHistory()">Export JSON</button>
+          <button class="btn-danger btn-xs" onclick="clearCallHistory()">Clear Log</button>
+        </div>
+      </div>
+
+      <div id="historyEmptyState" style="color: var(--text-dim); font-size: 0.85rem; padding: 1rem 0; text-align: center;">
+        No API calls recorded in this session yet. Run any action above to log HTTP requests, status codes, and latency.
+      </div>
+
+      <div id="historyTableContainer" style="display: none; overflow-x: auto;">
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th style="width: 45px;">#</th>
+              <th style="width: 90px;">Time</th>
+              <th style="width: 80px;">Method</th>
+              <th>Endpoint</th>
+              <th style="width: 110px;">Status</th>
+              <th style="width: 95px;">Duration</th>
+              <th style="width: 90px; text-align: right;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="historyTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Modal / Inspector Dialog -->
+  <div class="modal-backdrop" id="inspectModal" onclick="closeInspectModal(event)">
+    <div class="modal-dialog" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3 style="font-size: 1rem; font-weight: 700;" id="modalTitle">API Call Details</h3>
+        <button class="btn-secondary btn-xs" onclick="closeInspectModal()">&#10005; Close</button>
+      </div>
+      <div class="modal-body">
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+          <span class="method-tag method-post" id="modalMethod">POST</span>
+          <span class="status-code-badge status-2xx" id="modalStatus">200 OK</span>
+          <span class="pill pill-gray" id="modalDuration">450 ms</span>
+          <span class="pill pill-blue" id="modalTimestamp">--</span>
+        </div>
+
+        <div>
+          <div style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.25rem;">REQUEST ENDPOINT</div>
+          <pre><code id="modalUrl">--</code></pre>
+        </div>
+
+        <div>
+          <div style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.25rem;">REQUEST BODY (JSON)</div>
+          <pre><code id="modalReqBody">{}</code></pre>
+        </div>
+
+        <div>
+          <div style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.25rem;">RESPONSE BODY (JSON)</div>
+          <pre style="max-height: 250px;"><code id="modalResBody">{}</code></pre>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem;">
+          <button class="btn-primary btn-xs" onclick="copyModalCurl()">Copy cURL</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -795,26 +1070,217 @@
     let activeJobId = null;
     let currentTranscriptData = null;
 
+    // API Call History Store
+    const apiCallHistory = [];
+
+    // Stopwatch Engine State
+    let stopwatchTimer = null;
+    let stopwatchStartTime = 0;
+
+    function startMainStopwatch(label = 'Executing Pipeline...') {
+      stopMainStopwatch();
+      stopwatchStartTime = performance.now();
+      document.getElementById('stopwatchStatus').textContent = 'Stopwatch \u2022 ' + label;
+      document.getElementById('mainStopwatch').style.color = '#60a5fa';
+
+      stopwatchTimer = setInterval(() => {
+        const elapsed = performance.now() - stopwatchStartTime;
+        document.getElementById('mainStopwatch').textContent = formatStopwatch(elapsed);
+      }, 35);
+    }
+
+    function stopMainStopwatch(statusText = 'Finished', isError = false) {
+      if (stopwatchTimer) {
+        clearInterval(stopwatchTimer);
+        stopwatchTimer = null;
+      }
+      const finalElapsed = stopwatchStartTime ? (performance.now() - stopwatchStartTime) : 0;
+      if (finalElapsed > 0) {
+        document.getElementById('mainStopwatch').textContent = formatStopwatch(finalElapsed);
+      }
+      document.getElementById('stopwatchStatus').textContent = 'Stopwatch \u2022 ' + statusText;
+      document.getElementById('mainStopwatch').style.color = isError ? '#f87171' : '#34d399';
+      return finalElapsed;
+    }
+
+    function formatStopwatch(ms) {
+      const totalSec = ms / 1000;
+      const m = Math.floor(totalSec / 60);
+      const s = Math.floor(totalSec % 60);
+      const millis = Math.floor((ms % 1000) / 10);
+      return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${millis.toString().padStart(2, '0')}`;
+    }
+
+    // Step live ticking timer
+    let activeStepTimer = null;
+    let stepStartTime = 0;
+
+    function startStepTimer(stepId, latencyElId) {
+      if (activeStepTimer) clearInterval(activeStepTimer);
+      stepStartTime = performance.now();
+      const el = document.getElementById(latencyElId);
+      activeStepTimer = setInterval(() => {
+        const elapsed = (performance.now() - stepStartTime) / 1000;
+        el.textContent = elapsed.toFixed(1) + 's';
+      }, 70);
+    }
+
+    function stopStepTimer(latencyElId, finalMs) {
+      if (activeStepTimer) {
+        clearInterval(activeStepTimer);
+        activeStepTimer = null;
+      }
+      const el = document.getElementById(latencyElId);
+      if (finalMs < 1000) {
+        el.textContent = finalMs.toFixed(0) + ' ms';
+      } else {
+        el.textContent = (finalMs / 1000).toFixed(2) + ' s';
+      }
+    }
+
+    // Logging helper that tracks and stores API calls
+    function recordApiCall(entry) {
+      apiCallHistory.unshift(entry);
+      renderCallHistory();
+    }
+
+    function renderCallHistory() {
+      const tbody = document.getElementById('historyTableBody');
+      const emptyState = document.getElementById('historyEmptyState');
+      const tableContainer = document.getElementById('historyTableContainer');
+      const countPill = document.getElementById('historyCountPill');
+
+      countPill.textContent = apiCallHistory.length + ' call' + (apiCallHistory.length === 1 ? '' : 's');
+
+      if (apiCallHistory.length === 0) {
+        emptyState.style.display = 'block';
+        tableContainer.style.display = 'none';
+        return;
+      }
+
+      emptyState.style.display = 'none';
+      tableContainer.style.display = 'block';
+      tbody.innerHTML = '';
+
+      apiCallHistory.forEach((call, index) => {
+        const tr = document.createElement('tr');
+
+        let statusClass = 'status-2xx';
+        if (call.status >= 400 && call.status < 500) statusClass = 'status-4xx';
+        else if (call.status >= 500 || call.status === 0) statusClass = 'status-5xx';
+
+        let methodClass = 'method-post';
+        if (call.method === 'GET') methodClass = 'method-get';
+        else if (call.method === 'DELETE') methodClass = 'method-delete';
+
+        const durationFormatted = call.durationMs < 1000 ? `${call.durationMs.toFixed(0)} ms` : `${(call.durationMs/1000).toFixed(2)} s`;
+
+        tr.innerHTML = `
+          <td style="color: var(--text-dim); font-family: monospace;">#${apiCallHistory.length - index}</td>
+          <td style="color: var(--text-muted); font-size: 0.78rem;">${call.timeStr}</td>
+          <td><span class="method-tag ${methodClass}">${call.method}</span></td>
+          <td style="font-family: monospace; font-size: 0.8rem; color: #e5e7eb;">${call.endpoint}</td>
+          <td><span class="status-code-badge ${statusClass}">${call.status || 'ERR'} ${call.statusText || ''}</span></td>
+          <td style="font-family: monospace; font-weight: 600; color: #93c5fd;">${durationFormatted}</td>
+          <td style="text-align: right;">
+            <button class="btn-secondary btn-xs" onclick="openInspectModal(${index})">Inspect</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function clearCallHistory() {
+      apiCallHistory.length = 0;
+      renderCallHistory();
+    }
+
+    function exportCallHistory() {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(apiCallHistory, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", `api_calls_${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+    }
+
+    let inspectedCallIndex = null;
+    function openInspectModal(index) {
+      inspectedCallIndex = index;
+      const call = apiCallHistory[index];
+      if (!call) return;
+
+      document.getElementById('modalTitle').textContent = `API Call #${apiCallHistory.length - index}: ${call.method} ${call.endpoint}`;
+      document.getElementById('modalMethod').textContent = call.method;
+      document.getElementById('modalMethod').className = `method-tag method-${call.method.toLowerCase()}`;
+      document.getElementById('modalStatus').textContent = `${call.status} ${call.statusText || ''}`;
+      
+      let statusClass = 'status-2xx';
+      if (call.status >= 400 && call.status < 500) statusClass = 'status-4xx';
+      else if (call.status >= 500) statusClass = 'status-5xx';
+      document.getElementById('modalStatus').className = `status-code-badge ${statusClass}`;
+
+      document.getElementById('modalDuration').textContent = call.durationMs < 1000 ? `${call.durationMs.toFixed(0)} ms` : `${(call.durationMs/1000).toFixed(2)} s`;
+      document.getElementById('modalTimestamp').textContent = call.timeStr;
+      document.getElementById('modalUrl').textContent = window.location.origin + call.endpoint;
+      document.getElementById('modalReqBody').textContent = JSON.stringify(call.requestPayload || {}, null, 2);
+      document.getElementById('modalResBody').textContent = JSON.stringify(call.responsePayload || {}, null, 2);
+
+      document.getElementById('inspectModal').style.display = 'flex';
+    }
+
+    function closeInspectModal(e) {
+      document.getElementById('inspectModal').style.display = 'none';
+    }
+
+    function copyModalCurl() {
+      if (inspectedCallIndex === null) return;
+      const call = apiCallHistory[inspectedCallIndex];
+      const fullUrl = window.location.origin + call.endpoint;
+      let curl = `curl -X ${call.method} "${fullUrl}"`;
+      if (call.method === 'POST') {
+        curl += ` -H "Content-Type: application/json" -d '${JSON.stringify(call.requestPayload || {})}'`;
+      }
+      navigator.clipboard.writeText(curl).then(() => {
+        alert('cURL command copied to clipboard!');
+      });
+    }
+
     // Load initial health diagnostics on boot
     async function fetchHealthDiagnostics() {
+      const t0 = performance.now();
       try {
         const res = await fetch('/api/v1/health');
+        const duration = performance.now() - t0;
+        const data = await res.json().catch(() => ({}));
+
+        recordApiCall({
+          timeStr: new Date().toLocaleTimeString(),
+          method: 'GET',
+          endpoint: '/api/v1/health',
+          status: res.status,
+          statusText: res.statusText,
+          durationMs: duration,
+          requestPayload: null,
+          responsePayload: data
+        });
+
         if (!res.ok) throw new Error('Health check failed: ' + res.status);
-        const data = await res.json();
 
         const statusPill = document.getElementById('statusPill');
         statusPill.className = 'pill pill-green';
-        statusPill.innerHTML = '<span class="dot"></span> Online (v' + data.version + ')';
+        statusPill.innerHTML = '<span class="dot"></span> Online (v' + (data.version || '1.0.0') + ')';
 
         const gpuPill = document.getElementById('gpuPill');
-        if (data.hardware.cuda_available) {
+        if (data.hardware && data.hardware.cuda_available) {
           const dev = data.hardware.device_name || 'CUDA GPU';
           const vram = data.hardware.vram_total_mb ? ` (${(data.hardware.vram_total_mb/1024).toFixed(1)}GB)` : '';
           gpuPill.className = 'pill pill-green';
           gpuPill.textContent = 'CUDA: ' + dev + vram;
         } else {
           gpuPill.className = 'pill pill-purple';
-          gpuPill.textContent = data.groq_fallback.configured ? 'Groq Fallback Ready' : 'CPU Mode';
+          gpuPill.textContent = (data.groq_fallback && data.groq_fallback.configured) ? 'Groq Fallback Ready' : 'CPU Mode';
         }
       } catch (err) {
         const statusPill = document.getElementById('statusPill');
@@ -828,7 +1294,6 @@
       if (type === 'rick') {
         input.value = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
       } else if (type === 'over20') {
-        // Long sample video URL
         input.value = 'https://www.youtube.com/watch?v=b005iq6b9jM';
       }
     }
@@ -836,6 +1301,14 @@
     function resetForm() {
       document.getElementById('errorBanner').style.display = 'none';
       resetSteppers();
+      stopMainStopwatch('Reset', false);
+      document.getElementById('mainStopwatch').textContent = '00:00.00';
+      document.getElementById('metricTotal').textContent = '--';
+      document.getElementById('metricMeta').textContent = '--';
+      document.getElementById('metricAudio').textContent = '--';
+      document.getElementById('metricSTT').textContent = '--';
+      document.getElementById('metricRTF').textContent = '--';
+
       document.getElementById('metaEmptyState').style.display = 'block';
       document.getElementById('metaContent').style.display = 'none';
       document.getElementById('audioEmptyState').style.display = 'block';
@@ -892,17 +1365,21 @@
       const engine = document.getElementById('engineSelect').value || null;
       const wordTimestamps = document.getElementById('wordTimestamps').checked;
 
-      const startTime = performance.now();
+      startMainStopwatch(mode.toUpperCase());
 
       try {
         if (mode === 'metadata') {
           await runMetadataCall(url);
+          stopMainStopwatch('Completed (Metadata Only)');
         } else if (mode === 'audio') {
           await runAudioCall(url);
+          stopMainStopwatch('Completed (Audio Only)');
         } else if (mode === 'transcribe') {
           await runTranscribeCall(url, lang, engine, wordTimestamps);
+          stopMainStopwatch('Completed (Full Pipeline)');
         }
       } catch (err) {
+        stopMainStopwatch('Failed', true);
         showError(err.message || 'Operation failed');
       } finally {
         setButtonLoading(false);
@@ -914,25 +1391,59 @@
       const stepEl = document.getElementById('stepMeta');
       stepEl.className = 'step-card active';
       document.getElementById('stepMetaText').innerHTML = '<span class="spinner"></span> Resolving...';
+      startStepTimer('stepMeta', 'stepMetaLatency');
 
+      const payload = { url: url };
       const t0 = performance.now();
-      const res = await fetch('/api/v1/metadata', {
+      let res = null;
+      let data = null;
+
+      try {
+        res = await fetch('/api/v1/metadata', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        data = await res.json().catch(() => ({}));
+      } catch (networkErr) {
+        const duration = performance.now() - t0;
+        stopStepTimer('stepMetaLatency', duration);
+        recordApiCall({
+          timeStr: new Date().toLocaleTimeString(),
+          method: 'POST',
+          endpoint: '/api/v1/metadata',
+          status: 0,
+          statusText: 'Network Error',
+          durationMs: duration,
+          requestPayload: payload,
+          responsePayload: { error: networkErr.message }
+        });
+        throw networkErr;
+      }
+
+      const duration = performance.now() - t0;
+      stopStepTimer('stepMetaLatency', duration);
+
+      recordApiCall({
+        timeStr: new Date().toLocaleTimeString(),
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: url })
+        endpoint: '/api/v1/metadata',
+        status: res.status,
+        statusText: res.statusText,
+        durationMs: duration,
+        requestPayload: payload,
+        responsePayload: data
       });
-      const t1 = performance.now();
-      const duration = (t1 - t0).toFixed(0) + ' ms';
-      document.getElementById('stepMetaLatency').textContent = duration;
+
+      document.getElementById('metricMeta').textContent = duration < 1000 ? `${duration.toFixed(0)}ms` : `${(duration/1000).toFixed(2)}s`;
+      document.getElementById('metricTotal').textContent = (duration/1000).toFixed(2) + 's';
 
       if (!res.ok) {
         stepEl.className = 'step-card failed';
         document.getElementById('stepMetaText').textContent = `${res.status} Error`;
-        const errJson = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error(`Metadata call failed (${res.status}): ${errJson.detail || res.statusText}`);
+        throw new Error(`Metadata call failed (${res.status}): ${data.detail || res.statusText}`);
       }
 
-      const data = await res.json();
       stepEl.className = 'step-card success';
       document.getElementById('stepMetaText').textContent = '200 OK';
 
@@ -941,32 +1452,65 @@
 
     // Call 2: POST /api/v1/extract-audio
     async function runAudioCall(url) {
-      // Step 1: Metadata resolution happens inside extract-audio
       const stepMeta = document.getElementById('stepMeta');
       const stepAudio = document.getElementById('stepAudio');
 
       stepMeta.className = 'step-card active';
       stepAudio.className = 'step-card active';
       document.getElementById('stepAudioText').innerHTML = '<span class="spinner"></span> Extracting 16kHz MP3...';
+      startStepTimer('stepAudio', 'stepAudioLatency');
 
+      const payload = { url: url };
       const t0 = performance.now();
-      const res = await fetch('/api/v1/extract-audio', {
+      let res = null;
+      let data = null;
+
+      try {
+        res = await fetch('/api/v1/extract-audio', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        data = await res.json().catch(() => ({}));
+      } catch (networkErr) {
+        const duration = performance.now() - t0;
+        stopStepTimer('stepAudioLatency', duration);
+        recordApiCall({
+          timeStr: new Date().toLocaleTimeString(),
+          method: 'POST',
+          endpoint: '/api/v1/extract-audio',
+          status: 0,
+          statusText: 'Network Error',
+          durationMs: duration,
+          requestPayload: payload,
+          responsePayload: { error: networkErr.message }
+        });
+        throw networkErr;
+      }
+
+      const duration = performance.now() - t0;
+      stopStepTimer('stepAudioLatency', duration);
+
+      recordApiCall({
+        timeStr: new Date().toLocaleTimeString(),
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: url })
+        endpoint: '/api/v1/extract-audio',
+        status: res.status,
+        statusText: res.statusText,
+        durationMs: duration,
+        requestPayload: payload,
+        responsePayload: data
       });
-      const t1 = performance.now();
-      const duration = (t1 - t0).toFixed(0) + ' ms';
-      document.getElementById('stepAudioLatency').textContent = duration;
+
+      document.getElementById('metricAudio').textContent = duration < 1000 ? `${duration.toFixed(0)}ms` : `${(duration/1000).toFixed(2)}s`;
+      document.getElementById('metricTotal').textContent = (duration/1000).toFixed(2) + 's';
 
       if (!res.ok) {
         stepAudio.className = 'step-card failed';
         document.getElementById('stepAudioText').textContent = `${res.status} Error`;
-        const errJson = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error(`Audio extraction failed (${res.status}): ${errJson.detail || res.statusText}`);
+        throw new Error(`Audio extraction failed (${res.status}): ${data.detail || res.statusText}`);
       }
 
-      const data = await res.json();
       stepMeta.className = 'step-card success';
       stepMeta.querySelector('#stepMetaText').textContent = '200 OK';
       stepAudio.className = 'step-card success';
@@ -990,30 +1534,63 @@
       document.getElementById('stepMetaText').textContent = 'Resolving...';
       document.getElementById('stepAudioText').textContent = 'Queued';
       document.getElementById('stepSTTText').innerHTML = '<span class="spinner"></span> Transcribing...';
+      startStepTimer('stepSTT', 'stepSTTLatency');
 
-      const t0 = performance.now();
       const payload = { url: url };
       if (lang) payload.language = lang;
       if (engine) payload.force_engine = engine;
       if (wordTimestamps) payload.word_timestamps = true;
 
-      const res = await fetch('/api/v1/transcribe', {
+      const t0 = performance.now();
+      let res = null;
+      let data = null;
+
+      try {
+        res = await fetch('/api/v1/transcribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        data = await res.json().catch(() => ({}));
+      } catch (networkErr) {
+        const duration = performance.now() - t0;
+        stopStepTimer('stepSTTLatency', duration);
+        recordApiCall({
+          timeStr: new Date().toLocaleTimeString(),
+          method: 'POST',
+          endpoint: '/api/v1/transcribe',
+          status: 0,
+          statusText: 'Network Error',
+          durationMs: duration,
+          requestPayload: payload,
+          responsePayload: { error: networkErr.message }
+        });
+        throw networkErr;
+      }
+
+      const duration = performance.now() - t0;
+      stopStepTimer('stepSTTLatency', duration);
+
+      recordApiCall({
+        timeStr: new Date().toLocaleTimeString(),
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        endpoint: '/api/v1/transcribe',
+        status: res.status,
+        statusText: res.statusText,
+        durationMs: duration,
+        requestPayload: payload,
+        responsePayload: data
       });
-      const t1 = performance.now();
-      const duration = ((t1 - t0) / 1000).toFixed(2) + 's';
-      document.getElementById('stepSTTLatency').textContent = duration;
+
+      const totalSec = (duration / 1000).toFixed(2);
+      document.getElementById('metricSTT').textContent = totalSec + 's';
+      document.getElementById('metricTotal').textContent = totalSec + 's';
 
       if (!res.ok) {
         stepSTT.className = 'step-card failed';
         document.getElementById('stepSTTText').textContent = `${res.status} Error`;
-        const errJson = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error(`Pipeline failed (${res.status}): ${errJson.detail || res.statusText}`);
+        throw new Error(`Pipeline failed (${res.status}): ${data.detail || res.statusText}`);
       }
-
-      const data = await res.json();
 
       stepMeta.className = 'step-card success';
       stepMeta.querySelector('#stepMetaText').textContent = '200 OK';
@@ -1023,12 +1600,19 @@
       document.getElementById('stepSTTText').textContent = '200 OK';
 
       activeJobId = data.job_id;
-      if (data.meta) renderMetadata(data.meta);
+      if (data.meta) {
+        renderMetadata(data.meta);
+        // Calculate Real-Time Factor (RTF)
+        if (data.meta.duration_seconds && duration > 0) {
+          const rtf = (data.meta.duration_seconds / (duration / 1000)).toFixed(1);
+          document.getElementById('metricRTF').textContent = `${rtf}x Real-Time`;
+        }
+      }
       if (data.audio_size_bytes) {
         renderAudio(`/api/v1/jobs/${data.job_id}/audio`, data.audio_size_bytes, data.job_id);
       }
       if (data.transcript) {
-        renderTranscript(data.transcript, data.execution_time_seconds);
+        renderTranscript(data.transcript, data.execution_time_seconds || (duration/1000).toFixed(2));
       }
     }
 
@@ -1181,7 +1765,19 @@
 
     function downloadArtifact(fmt) {
       if (!activeJobId) return;
-      window.open(`/api/v1/jobs/${activeJobId}/transcript?format=${fmt}`, '_blank');
+      const t0 = performance.now();
+      const endpoint = `/api/v1/jobs/${activeJobId}/transcript?format=${fmt}`;
+      window.open(endpoint, '_blank');
+      recordApiCall({
+        timeStr: new Date().toLocaleTimeString(),
+        method: 'GET',
+        endpoint: endpoint,
+        status: 200,
+        statusText: 'Downloaded',
+        durationMs: performance.now() - t0,
+        requestPayload: null,
+        responsePayload: { format: fmt, jobId: activeJobId }
+      });
     }
 
     // Initialize diagnostics on window load
