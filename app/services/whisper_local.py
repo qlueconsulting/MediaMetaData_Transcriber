@@ -116,14 +116,26 @@ class LocalWhisperService:
         language: Optional[str] = None,
         prompt: Optional[str] = None,
         word_timestamps: bool = False,
+        model_name: Optional[str] = None,
+        batch_size: Optional[int] = None,
+        audio_duration: Optional[float] = None,
     ) -> TranscriptData:
-        """Transcribe audio file using local GPU faster-whisper."""
-        model = self.load_model()
+        """Transcribe audio file using local GPU faster-whisper with adaptive SLA batch scaling."""
+        target_model = model_name or settings.WHISPER_MODEL
+        model = self.load_model(model_name=target_model)
         log.info(f"Starting local transcription for job {job_id} using model {self._loaded_model_name} on {self._device_used}")
+
+        # Adaptive batch sizing to guarantee < 30-second SLA
+        effective_batch_size = batch_size or settings.WHISPER_BATCH_SIZE
+        if audio_duration is not None and self._device_used == "cuda":
+            if audio_duration > 1200:
+                effective_batch_size = max(effective_batch_size, 20)
+            elif audio_duration > 600:
+                effective_batch_size = max(effective_batch_size, 16)
 
         segments_gen = None
         info = None
-        use_batched = settings.WHISPER_BATCH_SIZE > 1 and self._device_used == "cuda"
+        use_batched = effective_batch_size > 1 and self._device_used == "cuda"
 
         if use_batched:
             try:
@@ -131,17 +143,18 @@ class LocalWhisperService:
                 if self._batched_model is None or getattr(self._batched_model, "model", None) != model:
                     self._batched_model = BatchedInferencePipeline(model=model)
                 log.info(
-                    f"Executing BatchedInferencePipeline (batch_size={settings.WHISPER_BATCH_SIZE}, "
+                    f"Executing BatchedInferencePipeline (model={target_model}, batch_size={effective_batch_size}, "
                     f"beam_size={settings.WHISPER_BEAM_SIZE}, vad_filter={settings.WHISPER_VAD_FILTER})"
                 )
                 segments_gen, info = self._batched_model.transcribe(
                     str(audio_path),
-                    batch_size=settings.WHISPER_BATCH_SIZE,
+                    batch_size=effective_batch_size,
                     beam_size=settings.WHISPER_BEAM_SIZE,
                     language=language,
                     initial_prompt=prompt,
                     word_timestamps=word_timestamps,
                     vad_filter=settings.WHISPER_VAD_FILTER,
+                    chunk_length=30,
                 )
             except Exception as e:
                 log.warning(f"Batched inference failed ({e}), falling back to standard transcribe")

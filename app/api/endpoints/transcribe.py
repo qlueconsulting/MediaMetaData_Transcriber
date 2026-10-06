@@ -12,6 +12,7 @@ from app.models.job import (
     JobStatus,
     ExtractAudioResponse,
 )
+from app.config import settings
 from app.models.metadata import MediaMetadataRequest, MediaMetadataResponse
 from app.services.media import media_service
 from app.services.transcription import transcription_orchestrator
@@ -107,6 +108,9 @@ def transcribe_media(request: TranscribeRequest) -> JobResponse:
         prompt=request.prompt,
         word_timestamps=request.word_timestamps,
         force_engine=request.force_engine,
+        speed_profile=request.speed_profile,
+        model_name=request.model,
+        audio_duration=metadata.duration_seconds,
     )
 
     # Ensure transcript.json is saved in persistent storage
@@ -116,6 +120,9 @@ def transcribe_media(request: TranscribeRequest) -> JobResponse:
     elapsed_time = round(time.time() - start_time, 2)
     log.info(f"Job {job_id} fully processed in {elapsed_time}s")
 
+    sla_met = elapsed_time <= float(settings.WHISPER_SLA_TARGET_SECONDS)
+    rtf = round(metadata.duration_seconds / elapsed_time, 2) if (metadata.duration_seconds and elapsed_time > 0) else None
+
     return JobResponse(
         job_id=job_id,
         status=JobStatus.COMPLETED,
@@ -123,6 +130,9 @@ def transcribe_media(request: TranscribeRequest) -> JobResponse:
         created_at=saved_meta.created_at,
         completed_at=datetime.now(timezone.utc).isoformat(),
         execution_time_seconds=elapsed_time,
+        sla_met=sla_met,
+        real_time_factor=rtf,
+        speed_profile=request.speed_profile,
         cached=False,
         meta=saved_meta,
         audio_size_bytes=audio_size,
@@ -247,6 +257,7 @@ def transcribe_job_audio(job_id: str, request: JobTranscribeRequest) -> JobRespo
             )
 
     log.info(f"Running Whisper transcription for job {job_id} ({audio_path})")
+    duration_sec = meta_obj.duration_seconds if meta_obj else None
     transcript_data = transcription_orchestrator.transcribe(
         audio_path=audio_path,
         job_id=job_id,
@@ -254,11 +265,17 @@ def transcribe_job_audio(job_id: str, request: JobTranscribeRequest) -> JobRespo
         prompt=request.prompt,
         word_timestamps=request.word_timestamps,
         force_engine=request.force_engine,
+        speed_profile=request.speed_profile,
+        model_name=request.model,
+        audio_duration=duration_sec,
     )
 
     storage_service.save_transcript(job_id, transcript_data.model_dump())
     elapsed_time = round(time.time() - start_time, 2)
     log.info(f"Job {job_id} transcribed in {elapsed_time}s")
+
+    sla_met = elapsed_time <= float(settings.WHISPER_SLA_TARGET_SECONDS)
+    rtf = round(duration_sec / elapsed_time, 2) if (duration_sec and elapsed_time > 0) else None
 
     return JobResponse(
         job_id=job_id,
@@ -267,6 +284,9 @@ def transcribe_job_audio(job_id: str, request: JobTranscribeRequest) -> JobRespo
         created_at=created_at_val,
         completed_at=datetime.now(timezone.utc).isoformat(),
         execution_time_seconds=elapsed_time,
+        sla_met=sla_met,
+        real_time_factor=rtf,
+        speed_profile=request.speed_profile,
         cached=False,
         meta=meta_obj,
         audio_size_bytes=audio_size,

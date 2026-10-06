@@ -97,3 +97,63 @@ def test_orchestrator_force_groq(dummy_audio_file, monkeypatch):
         assert result.text == "Forced Groq result."
         mock_groq.assert_called_once()
         mock_local.assert_not_called()
+
+
+def test_orchestrator_adaptive_sla_routes_to_groq_for_very_long_audio(dummy_audio_file, monkeypatch):
+    """When speed_profile='adaptive' and video > 30 mins (1800s), route to Groq for instant SLA if configured."""
+    monkeypatch.setattr(settings, "GROQ_API_KEY", "gsk_test_mock_key_123")
+
+    groq_transcript = TranscriptData(
+        job_id="sla-groq-job",
+        text="Fast cloud transcription for long video.",
+        language="en",
+        duration_seconds=2400.0,
+        engine="groq-whisper-cloud",
+        model="whisper-large-v3-turbo",
+        segments=[],
+    )
+
+    orchestrator = TranscriptionOrchestrator()
+
+    with patch("app.services.whisper_local.local_whisper_service.transcribe") as mock_local, \
+         patch("app.services.groq_client.groq_whisper_service.transcribe", return_value=groq_transcript) as mock_groq:
+
+        result = orchestrator.transcribe(
+            audio_path=dummy_audio_file,
+            job_id="sla-groq-job",
+            speed_profile="adaptive",
+            audio_duration=2400.0,  # 40-minute video
+        )
+
+        assert result.engine == "groq-whisper-cloud"
+        mock_groq.assert_called_once()
+        mock_local.assert_not_called()
+
+
+def test_orchestrator_adaptive_sla_routes_to_local_turbo_for_standard_lengths(dummy_audio_file):
+    """Adaptive SLA routes 20-min video to large-v3-turbo with dynamic batching on local GPU."""
+    local_transcript = TranscriptData(
+        job_id="local-turbo-job",
+        text="Fast local turbo transcription.",
+        language="en",
+        duration_seconds=1200.0,
+        engine="faster-whisper-cuda",
+        model="large-v3-turbo",
+        segments=[],
+    )
+
+    orchestrator = TranscriptionOrchestrator()
+
+    with patch("app.services.whisper_local.local_whisper_service.transcribe", return_value=local_transcript) as mock_local:
+        result = orchestrator.transcribe(
+            audio_path=dummy_audio_file,
+            job_id="local-turbo-job",
+            speed_profile="adaptive",
+            audio_duration=1200.0,
+        )
+
+        assert result.model == "large-v3-turbo"
+        mock_local.assert_called_once()
+        call_kwargs = mock_local.call_args.kwargs
+        assert call_kwargs["model_name"] == "large-v3-turbo"
+        assert call_kwargs["audio_duration"] == 1200.0

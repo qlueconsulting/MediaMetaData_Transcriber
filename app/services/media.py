@@ -236,8 +236,9 @@ class MediaService:
 
         opts = self._get_base_ytdlp_opts()
         opts.update({
-            "format": "bestaudio/best",
+            "format": "ba[ext=m4a]/ba[abr<=96]/ba/bestaudio/best",
             "outtmpl": output_template,
+            "concurrent_fragment_downloads": 4,
             "postprocessors": [
                 {
                     "key": "FFmpegExtractAudio",
@@ -246,6 +247,7 @@ class MediaService:
                 }
             ],
             "postprocessor_args": [
+                "-threads", "0",
                 "-ac", str(settings.AUDIO_CHANNELS),
                 "-ar", str(settings.AUDIO_SAMPLE_RATE),
                 "-b:a", settings.AUDIO_BITRATE,

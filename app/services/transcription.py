@@ -23,52 +23,77 @@ class TranscriptionOrchestrator:
         prompt: Optional[str] = None,
         word_timestamps: bool = False,
         force_engine: Optional[str] = None,
+        speed_profile: Optional[str] = "adaptive",
+        model_name: Optional[str] = None,
+        audio_duration: Optional[float] = None,
     ) -> TranscriptData:
-        """Transcribe audio with resilient engine fallback.
+        """Transcribe audio with resilient engine fallback and adaptive SLA optimization.
 
         Preference order:
         1. Explicit override if requested (force_engine='groq' or 'cuda' or 'cpu').
-        2. Force Groq flag if enabled in configuration.
-        3. Local faster-whisper with CUDA acceleration.
-        4. Groq Whisper Cloud API fallback if CUDA fails or is unavailable.
-        5. CPU faster-whisper if Groq is unconfigured.
+        2. Force Groq flag or cloud profile if enabled.
+        3. Adaptive SLA mode: If duration > 30m and Groq is available, route to Cloud Turbo;
+           otherwise run local faster-whisper with large-v3-turbo and dynamic batch scaling.
+        4. Local faster-whisper with CUDA acceleration.
+        5. Groq Whisper Cloud API fallback if CUDA fails or is unavailable.
+        6. CPU faster-whisper if Groq is unconfigured.
         """
         transcript: Optional[TranscriptData] = None
         error_history = []
 
-        # 1. Force Groq if explicitly requested
+        # 1. Force Groq if explicitly requested or cloud profile
         should_use_groq = (
             force_engine == "groq"
+            or speed_profile == "groq"
             or (settings.FORCE_GROQ_FALLBACK and groq_whisper_service.is_configured)
+            or (
+                speed_profile == "adaptive"
+                and audio_duration is not None
+                and audio_duration > 1800
+                and groq_whisper_service.is_configured
+            )
         )
 
         if should_use_groq:
             if not groq_whisper_service.is_configured:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Groq engine was requested, but GROQ_API_KEY is not configured.",
+                if force_engine == "groq" or speed_profile == "groq":
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Groq engine was requested, but GROQ_API_KEY is not configured.",
+                    )
+            else:
+                log.info(f"Using Groq Whisper API for job {job_id} (profile={speed_profile})")
+                transcript = groq_whisper_service.transcribe(
+                    audio_path=audio_path,
+                    job_id=job_id,
+                    language=language,
+                    prompt=prompt,
+                    word_timestamps=word_timestamps,
                 )
-            log.info(f"Using forced Groq Whisper API for job {job_id}")
-            transcript = groq_whisper_service.transcribe(
-                audio_path=audio_path,
-                job_id=job_id,
-                language=language,
-                prompt=prompt,
-                word_timestamps=word_timestamps,
-            )
-            # Save transcript.json
-            storage_service.save_transcript(job_id, transcript.model_dump())
-            return transcript
+                storage_service.save_transcript(job_id, transcript.model_dump())
+                return transcript
 
-        # 2. Try Local Faster-Whisper (CUDA / GPU)
+        # 2. Try Local Faster-Whisper (CUDA / GPU) with adaptive model selection
+        chosen_model = model_name
+        if not chosen_model:
+            if speed_profile == "standard":
+                chosen_model = "large-v3"
+            elif speed_profile in ("turbo", "adaptive"):
+                chosen_model = settings.WHISPER_MODEL  # defaults to large-v3-turbo
+
         try:
-            log.info(f"Attempting local faster-whisper transcription for job {job_id}")
+            log.info(
+                f"Attempting local faster-whisper transcription for job {job_id} "
+                f"(model={chosen_model}, profile={speed_profile}, duration={audio_duration}s)"
+            )
             transcript = local_whisper_service.transcribe(
                 audio_path=audio_path,
                 job_id=job_id,
                 language=language,
                 prompt=prompt,
                 word_timestamps=word_timestamps,
+                model_name=chosen_model,
+                audio_duration=audio_duration,
             )
         except Exception as e:
             error_msg = f"Local faster-whisper failed: {str(e)}"

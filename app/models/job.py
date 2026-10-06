@@ -55,6 +55,14 @@ class TranscribeRequest(BaseModel):
         default=None,
         description="Override engine: 'cuda', 'groq', or 'cpu'",
     )
+    speed_profile: Optional[str] = Field(
+        default="adaptive",
+        description="Performance profile: 'adaptive' (<30s SLA target), 'turbo' (large-v3-turbo), 'standard' (large-v3), 'groq' (cloud turbo)",
+    )
+    model: Optional[str] = Field(
+        default=None,
+        description="Optional faster-whisper model override (e.g. 'large-v3-turbo', 'large-v3', 'distil-large-v3', 'medium')",
+    )
 
 
 class JobTranscribeRequest(BaseModel):
@@ -74,6 +82,14 @@ class JobTranscribeRequest(BaseModel):
     force_engine: Optional[str] = Field(
         default=None,
         description="Override engine: 'cuda', 'groq', or 'cpu'",
+    )
+    speed_profile: Optional[str] = Field(
+        default="adaptive",
+        description="Performance profile: 'adaptive' (<30s SLA target), 'turbo' (large-v3-turbo), 'standard' (large-v3), 'groq' (cloud turbo)",
+    )
+    model: Optional[str] = Field(
+        default=None,
+        description="Optional faster-whisper model override (e.g. 'large-v3-turbo', 'large-v3')",
     )
     bypass_cache: bool = Field(
         default=False,
@@ -97,6 +113,18 @@ class JobResponse(BaseModel):
     execution_time_seconds: Optional[float] = Field(
         default=None,
         description="Total processing time in seconds",
+    )
+    sla_met: Optional[bool] = Field(
+        default=None,
+        description="True if total processing time satisfied the < 30-second SLA target",
+    )
+    real_time_factor: Optional[float] = Field(
+        default=None,
+        description="Real-time speedup factor (audio_duration / execution_time)",
+    )
+    speed_profile: Optional[str] = Field(
+        default=None,
+        description="Speed profile used for this job",
     )
     cached: bool = Field(
         default=False,

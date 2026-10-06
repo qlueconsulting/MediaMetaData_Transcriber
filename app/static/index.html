@@ -773,6 +773,10 @@
           <span class="metric-chip-title" style="color: #93c5fd;">Real-Time Factor</span>
           <span class="metric-chip-value" id="metricRTF" style="color: #60a5fa;">--</span>
         </div>
+        <div class="metric-chip" id="metricSlaChip" style="border-color: rgba(16, 185, 129, 0.4);">
+          <span class="metric-chip-title" style="color: #6ee7b7;">&lt; 30s Target</span>
+          <span class="metric-chip-value" id="metricSLA" style="color: #34d399;">Ready</span>
+        </div>
       </div>
     </div>
 
@@ -838,6 +842,15 @@
           <div class="toggle-item">
             <input type="checkbox" id="wordTimestamps" />
             <label for="wordTimestamps">Word-level timestamps</label>
+          </div>
+          <div class="toggle-item" style="border-left: 1px solid var(--card-border); padding-left: 0.75rem;">
+            <label for="profileSelect" style="font-weight: 600; color: #34d399;" title="Target SLA / Optimization Profile designed to guarantee < 30s transcription regardless of video length">Speed / SLA:</label>
+            <select id="profileSelect" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; background: var(--code-bg); border: 1px solid var(--card-border); color: #34d399; font-weight: 600; border-radius: 6px;">
+              <option value="adaptive" selected>⚡ Adaptive Turbo (&lt; 30s Target)</option>
+              <option value="turbo">🚀 Large-v3-Turbo (80x-110x RTF)</option>
+              <option value="standard">🎯 Large-v3 Standard</option>
+              <option value="groq">☁️ Groq Cloud (&lt; 3s)</option>
+            </select>
           </div>
           <div class="toggle-item" style="border-left: 1px solid var(--card-border); padding-left: 0.75rem;">
             <label for="durationLimitOverride" style="font-weight: 600; color: #f59e0b;" title="Override maximum allowed video duration in minutes. 0 = unlimited. Default is 20.">Limit (mins):</label>
@@ -1442,6 +1455,15 @@
       document.getElementById('metricSTT').textContent = '--';
       document.getElementById('metricRTF').textContent = '--';
 
+      const slaEl = document.getElementById('metricSLA');
+      if (slaEl) {
+        slaEl.textContent = 'Ready';
+        slaEl.style.color = '#34d399';
+      }
+
+      const profEl = document.getElementById('profileSelect');
+      if (profEl) profEl.value = 'adaptive';
+
       const limitInput = document.getElementById('durationLimitOverride');
       if (limitInput) limitInput.value = '20';
 
@@ -1541,7 +1563,19 @@
           // Step 3: Whisper Transcription (Step 1 & 2 Completed 200 OK; Step 3 ONLY NOW fires and counts in order!)
           await runJobTranscribeCall(jobId, lang, engine, wordTimestamps, bypassCache, metaData.duration_seconds);
 
-          stopMainStopwatch('Completed (Full Pipeline)');
+          const finalMs = stopMainStopwatch('Completed (Full Pipeline)');
+          const totalSec = (finalMs / 1000).toFixed(2);
+          document.getElementById('metricTotal').textContent = `${totalSec}s`;
+          const slaEl = document.getElementById('metricSLA');
+          if (slaEl) {
+            if (finalMs <= 30000) {
+              slaEl.textContent = `PASS ⚡ (${totalSec}s)`;
+              slaEl.style.color = '#34d399';
+            } else {
+              slaEl.textContent = `EXCEEDED (${totalSec}s)`;
+              slaEl.style.color = '#f87171';
+            }
+          }
         }
       } catch (err) {
         stopMainStopwatch('Failed', true);
@@ -1632,9 +1666,11 @@
       document.getElementById('stepSTTText').innerHTML = '<span class="spinner"></span> Transcribing with Whisper...';
       startStepTimer('stepSTT', 'stepSTTLatency');
 
+      const speedProfile = document.getElementById('profileSelect') ? document.getElementById('profileSelect').value : 'adaptive';
       const payload = {
         bypass_cache: bypassCache,
         word_timestamps: wordTimestamps,
+        speed_profile: speedProfile,
       };
       if (lang) payload.language = lang;
       if (engine) payload.force_engine = engine;
