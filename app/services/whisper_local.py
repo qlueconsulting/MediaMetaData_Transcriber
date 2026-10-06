@@ -5,20 +5,21 @@ Optimized for NVIDIA RTX 2060 Super 8GB VRAM with float16 compute type.
 
 import os
 from pathlib import Path
-from typing import Optional, List, Tuple, Dict, Any
+from typing import Optional, List, Tuple, Dict, Any, Union
 from app.config import settings
 from app.utils.logger import log
 from app.models.transcript import TranscriptSegment, TranscriptData, WordTimestamp
 
 
 class LocalWhisperService:
-    """Manages faster-whisper model loading and GPU inference."""
+    """Manages faster-whisper model loading and GPU inference across single or dual GPU setups."""
 
     def __init__(self):
         self._model = None
         self._batched_model = None
         self._loaded_model_name: Optional[str] = None
         self._device_used: Optional[str] = None
+        self._loaded_device_index = None
 
     def is_cuda_available(self) -> Tuple[bool, str]:
         """Check if CUDA acceleration is available on the host system."""
@@ -41,42 +42,113 @@ class LocalWhisperService:
 
         return False, "No CUDA devices detected"
 
-    def get_gpu_info(self) -> Dict[str, Any]:
-        """Query GPU memory and device details."""
-        info = {
-            "cuda_available": False,
-            "device_name": None,
-            "vram_total_mb": None,
-            "vram_allocated_mb": None,
-            "vram_free_mb": None,
-        }
+    def resolve_device_indices(self) -> Union[int, List[int]]:
+        """Resolve GPU device indices from settings ('auto', 'all', '0,1', or int)."""
+        if settings.WHISPER_DEVICE.lower() != "cuda":
+            return 0
+
+        cuda_count = 0
         try:
-            import torch
-            if torch.cuda.is_available():
-                info["cuda_available"] = True
-                info["device_name"] = torch.cuda.get_device_name(0)
-                total = torch.cuda.get_device_properties(0).total_memory / (1024 * 1024)
-                allocated = torch.cuda.memory_allocated(0) / (1024 * 1024)
-                info["vram_total_mb"] = round(total, 2)
-                info["vram_allocated_mb"] = round(allocated, 2)
-                info["vram_free_mb"] = round(total - allocated, 2)
+            import ctranslate2
+            cuda_count = ctranslate2.get_cuda_device_count()
         except Exception:
             pass
 
-        if not info["cuda_available"]:
-            cuda_ok, msg = self.is_cuda_available()
-            info["cuda_available"] = cuda_ok
-            info["details"] = msg
+        if cuda_count <= 0:
+            return 0
 
-        return info
+        raw = settings.WHISPER_DEVICE_INDEX
+        if isinstance(raw, list):
+            valid = [i for i in raw if 0 <= i < cuda_count]
+            return valid if len(valid) > 1 else (valid[0] if valid else 0)
+
+        raw_str = str(raw).strip().lower()
+        if raw_str in ("auto", "all"):
+            if cuda_count > 1:
+                return list(range(cuda_count))
+            return 0
+
+        if "," in raw_str:
+            indices = [int(x.strip()) for x in raw_str.split(",") if x.strip().isdigit()]
+            valid = [i for i in indices if 0 <= i < cuda_count]
+            if len(valid) > 1:
+                return valid
+            if len(valid) == 1:
+                return valid[0]
+            return 0
+
+        try:
+            val = int(raw_str)
+            return val if 0 <= val < cuda_count else 0
+        except ValueError:
+            return 0
+
+    def get_gpu_info(self) -> Dict[str, Any]:
+        """Query GPU memory and device details across all available server GPUs."""
+        devices = []
+        cuda_count = 0
+        try:
+            import ctranslate2
+            cuda_count = ctranslate2.get_cuda_device_count()
+        except Exception:
+            pass
+
+        # Real-time multi-GPU telemetry via nvidia-smi if available
+        try:
+            import subprocess
+            res = subprocess.run(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=index,name,memory.total,memory.free,memory.used",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                for line in res.stdout.strip().splitlines():
+                    parts = [p.strip() for p in line.split(",")]
+                    if len(parts) >= 5:
+                        devices.append({
+                            "index": int(parts[0]),
+                            "name": parts[1],
+                            "vram_total_mb": float(parts[2]),
+                            "vram_free_mb": float(parts[3]),
+                            "vram_used_mb": float(parts[4]),
+                        })
+        except Exception:
+            pass
+
+        active_indices = self.resolve_device_indices()
+        cuda_available = len(devices) > 0 or cuda_count > 0
+
+        primary_device = devices[0] if devices else {}
+        total_vram = sum(d["vram_total_mb"] for d in devices) if devices else None
+        free_vram = sum(d["vram_free_mb"] for d in devices) if devices else None
+
+        return {
+            "cuda_available": cuda_available,
+            "device_count": len(devices) if devices else cuda_count,
+            "device_name": primary_device.get("name") or (f"{cuda_count} CUDA Device(s)" if cuda_count else "None"),
+            "vram_total_mb": primary_device.get("vram_total_mb"),
+            "vram_free_mb": primary_device.get("vram_free_mb"),
+            "total_cluster_vram_mb": total_vram,
+            "total_cluster_free_vram_mb": free_vram,
+            "devices": devices,
+            "active_device_indices": active_indices,
+            "details": f"Multi-GPU enabled: {len(devices) or cuda_count} device(s) detected; Whisper bound to index {active_indices}" if cuda_available else "No CUDA devices detected",
+        }
 
     def load_model(self, force_reload: bool = False, model_name: Optional[str] = None):
-        """Lazy load or return the preloaded faster-whisper model."""
+        """Lazy load or return the preloaded faster-whisper model spanning available GPUs."""
         from faster_whisper import WhisperModel
 
         target_model = model_name or settings.WHISPER_MODEL
         target_device = settings.WHISPER_DEVICE
         compute_type = settings.WHISPER_COMPUTE_TYPE
+        device_indices = self.resolve_device_indices()
+        num_workers = len(device_indices) if isinstance(device_indices, list) else 1
 
         # Validate CUDA availability
         cuda_ok, cuda_msg = self.is_cuda_available()
@@ -84,14 +156,21 @@ class LocalWhisperService:
             log.warning(f"CUDA requested but unavailable ({cuda_msg}). Falling back to CPU for local whisper.")
             target_device = "cpu"
             compute_type = "int8" if compute_type == "float16" else compute_type
+            device_indices = 0
+            num_workers = 1
 
         if self._model is not None and not force_reload:
-            if self._loaded_model_name == target_model and self._device_used == target_device:
+            if (
+                self._loaded_model_name == target_model
+                and self._device_used == target_device
+                and self._loaded_device_index == device_indices
+            ):
                 return self._model
 
         log.info(
             f"Loading faster-whisper model '{target_model}' "
-            f"(device={target_device}, compute_type={compute_type}, download_root={settings.MODEL_DIR})"
+            f"(device={target_device}, device_index={device_indices}, num_workers={num_workers}, "
+            f"compute_type={compute_type}, download_root={settings.MODEL_DIR})"
         )
 
         settings.MODEL_DIR.mkdir(parents=True, exist_ok=True)
@@ -99,14 +178,16 @@ class LocalWhisperService:
         self._model = WhisperModel(
             model_size_or_path=target_model,
             device=target_device,
-            device_index=settings.WHISPER_DEVICE_INDEX,
+            device_index=device_indices,
             compute_type=compute_type,
             download_root=str(settings.MODEL_DIR),
+            num_workers=num_workers,
         )
         self._loaded_model_name = target_model
         self._device_used = target_device
+        self._loaded_device_index = device_indices
         self._batched_model = None
-        log.info(f"Loaded faster-whisper model '{target_model}' on {target_device} successfully.")
+        log.info(f"Loaded faster-whisper model '{target_model}' on {target_device} (indices={device_indices}) successfully.")
         return self._model
 
     def transcribe(

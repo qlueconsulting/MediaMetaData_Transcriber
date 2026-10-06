@@ -199,3 +199,54 @@ def test_local_whisper_transcribe_with_model_name(dummy_audio_file):
             mock_load.assert_called_once_with(model_name="large-v3-turbo")
             assert result.job_id == "test-load-model-job"
 
+
+def test_multi_gpu_device_resolution(monkeypatch):
+    """Test resolution of GPU device indices for single, dual, auto, and manual configurations."""
+    from app.services.whisper_local import LocalWhisperService
+
+    service = LocalWhisperService()
+
+    # Simulate 2 CUDA devices detected
+    with patch("ctranslate2.get_cuda_device_count", return_value=2):
+        monkeypatch.setattr(settings, "WHISPER_DEVICE", "cuda")
+
+        monkeypatch.setattr(settings, "WHISPER_DEVICE_INDEX", "auto")
+        assert service.resolve_device_indices() == [0, 1]
+
+        monkeypatch.setattr(settings, "WHISPER_DEVICE_INDEX", "all")
+        assert service.resolve_device_indices() == [0, 1]
+
+        monkeypatch.setattr(settings, "WHISPER_DEVICE_INDEX", "0,1")
+        assert service.resolve_device_indices() == [0, 1]
+
+        monkeypatch.setattr(settings, "WHISPER_DEVICE_INDEX", "0")
+        assert service.resolve_device_indices() == 0
+
+        monkeypatch.setattr(settings, "WHISPER_DEVICE_INDEX", "1")
+        assert service.resolve_device_indices() == 1
+
+    # Simulate 1 CUDA device
+    with patch("ctranslate2.get_cuda_device_count", return_value=1):
+        monkeypatch.setattr(settings, "WHISPER_DEVICE_INDEX", "auto")
+        assert service.resolve_device_indices() == 0
+
+
+def test_multi_gpu_model_loading_spans_workers(monkeypatch):
+    """When multiple GPUs are available, WhisperModel should be instantiated with device_index list and num_workers."""
+    from app.services.whisper_local import LocalWhisperService
+
+    service = LocalWhisperService()
+    mock_model_instance = MagicMock()
+
+    with patch("ctranslate2.get_cuda_device_count", return_value=2), \
+         patch.object(service, "is_cuda_available", return_value=(True, "2 CUDA devices")), \
+         patch("faster_whisper.WhisperModel", return_value=mock_model_instance) as mock_cls:
+        monkeypatch.setattr(settings, "WHISPER_DEVICE", "cuda")
+        monkeypatch.setattr(settings, "WHISPER_DEVICE_INDEX", "auto")
+
+        loaded = service.load_model(force_reload=True)
+        assert loaded == mock_model_instance
+        assert mock_cls.call_args.kwargs["device_index"] == [0, 1]
+        assert mock_cls.call_args.kwargs["num_workers"] == 2
+
+

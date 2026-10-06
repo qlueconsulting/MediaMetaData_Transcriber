@@ -32,9 +32,14 @@ def health_check():
         "version": "1.0.0",
         "hardware": {
             "cuda_available": gpu_info.get("cuda_available", False),
+            "device_count": gpu_info.get("device_count", 0),
             "device_name": gpu_info.get("device_name"),
             "vram_total_mb": gpu_info.get("vram_total_mb"),
             "vram_free_mb": gpu_info.get("vram_free_mb"),
+            "total_cluster_vram_mb": gpu_info.get("total_cluster_vram_mb"),
+            "total_cluster_free_vram_mb": gpu_info.get("total_cluster_free_vram_mb"),
+            "devices": gpu_info.get("devices", []),
+            "active_device_indices": gpu_info.get("active_device_indices"),
         },
         "whisper": {
             "model": settings.WHISPER_MODEL,

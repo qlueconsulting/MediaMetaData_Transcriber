@@ -1420,13 +1420,22 @@
 
         const gpuPill = document.getElementById('gpuPill');
         if (data.hardware && data.hardware.cuda_available) {
+          const count = data.hardware.device_count || (data.hardware.devices ? data.hardware.devices.length : 1);
           const dev = data.hardware.device_name || 'CUDA GPU';
-          const vram = data.hardware.vram_total_mb ? ` (${(data.hardware.vram_total_mb/1024).toFixed(1)}GB)` : '';
+          const totalVramMb = data.hardware.total_cluster_vram_mb || data.hardware.vram_total_mb;
+          const vramStr = totalVramMb ? ` (${(totalVramMb/1024).toFixed(1)}GB)` : '';
           gpuPill.className = 'pill pill-green';
-          gpuPill.textContent = 'CUDA: ' + dev + vram;
+          if (count > 1) {
+            gpuPill.textContent = `CUDA: ${count}x GPUs Spanned${vramStr}`;
+            gpuPill.title = data.hardware.devices ? data.hardware.devices.map(d => `GPU ${d.index}: ${d.name} (${(d.vram_total_mb/1024).toFixed(1)}GB)`).join('\n') : '';
+          } else {
+            gpuPill.textContent = 'CUDA: ' + dev + vramStr;
+            gpuPill.title = 'Single GPU active';
+          }
         } else {
           gpuPill.className = 'pill pill-purple';
           gpuPill.textContent = (data.groq_fallback && data.groq_fallback.configured) ? 'Groq Fallback Ready' : 'CPU Mode';
+          gpuPill.title = '';
         }
       } catch (err) {
         const statusPill = document.getElementById('statusPill');

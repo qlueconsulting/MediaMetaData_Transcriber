@@ -1,7 +1,7 @@
 """Application configuration settings."""
 
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union, List
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -71,9 +71,9 @@ class Settings(BaseSettings):
         default="float16",
         description="Computation type ('float16', 'int8_float16', 'int8')",
     )
-    WHISPER_DEVICE_INDEX: int = Field(
-        default=0,
-        description="GPU device index for multi-GPU setups",
+    WHISPER_DEVICE_INDEX: Union[int, List[int], str] = Field(
+        default="auto",
+        description="GPU device index or indices ('auto' to span all available GPUs, 0, '0,1', or [0, 1])",
     )
     WHISPER_BEAM_SIZE: int = Field(
         default=1,
