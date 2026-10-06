@@ -118,8 +118,34 @@ class TranscriptionOrchestrator:
             else:
                 log.info(
                     "Groq fallback is not available (disabled or missing GROQ_API_KEY). "
-                    "Cannot fallback to cloud API."
+                    "Attempting emergency local CPU execution..."
                 )
+                try:
+                    cpu_model = local_whisper_service.load_model(
+                        force_reload=True,
+                        model_name=chosen_model,
+                        device="cpu",
+                        compute_type="int8",
+                    )
+                    gen, info = cpu_model.transcribe(
+                        str(audio_path),
+                        beam_size=settings.WHISPER_BEAM_SIZE,
+                        language=language,
+                        initial_prompt=prompt,
+                        word_timestamps=word_timestamps,
+                        vad_filter=settings.WHISPER_VAD_FILTER,
+                    )
+                    text_parts = [seg.text for seg in gen]
+                    transcript = TranscriptData(
+                        job_id=job_id,
+                        text="".join(text_parts).strip(),
+                        language=getattr(info, "language", None),
+                        engine="faster-whisper-cpu-emergency",
+                        model=chosen_model or settings.WHISPER_MODEL,
+                        segments=[],
+                    )
+                except Exception as cpu_err:
+                    error_history.append(f"Emergency CPU fallback failed: {cpu_err}")
 
         if transcript is None:
             combined_errors = " | ".join(error_history)

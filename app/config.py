@@ -80,8 +80,8 @@ class Settings(BaseSettings):
         description="Beam search size for decoding (1 = fast greedy search, 5 = exhaustive)",
     )
     WHISPER_BATCH_SIZE: int = Field(
-        default=16,
-        description="Batch size for BatchedInferencePipeline (e.g. 16 for high GPU saturation on RTX 2060S)",
+        default=8,
+        description="Batch size for BatchedInferencePipeline (8 optimal for 8GB VRAM saturation without OOM)",
     )
     WHISPER_VAD_FILTER: bool = Field(
         default=True,

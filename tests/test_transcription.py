@@ -250,3 +250,100 @@ def test_multi_gpu_model_loading_spans_workers(monkeypatch):
         assert mock_cls.call_args.kwargs["num_workers"] == 2
 
 
+def test_local_whisper_batched_oom_auto_recovery(dummy_audio_file):
+    """When batched inference throws CUDA out of memory, it should fall back to sequential transcribe."""
+    from app.services.whisper_local import LocalWhisperService
+
+    service = LocalWhisperService()
+    mock_model_instance = MagicMock()
+    mock_info = MagicMock()
+    mock_info.language = "en"
+    mock_info.language_probability = 0.99
+    mock_info.duration = 10.0
+
+    # Sequential transcribe returns valid segments
+    mock_seg = MagicMock()
+    mock_seg.id = 1
+    mock_seg.seek = 0
+    mock_seg.start = 0.0
+    mock_seg.end = 2.0
+    mock_seg.text = "Recovered after OOM."
+    mock_seg.avg_logprob = -0.2
+    mock_seg.no_speech_prob = 0.01
+    mock_seg.words = None
+
+    mock_model_instance.transcribe.return_value = ([mock_seg], mock_info)
+
+    mock_batched_instance = MagicMock()
+    # Batched transcribe generator throws CUDA out of memory on iteration
+    def _oom_generator(*args, **kwargs):
+        raise RuntimeError("CUDA failed with error out of memory")
+        yield  # Make it a generator
+
+    mock_batched_instance.transcribe.side_effect = _oom_generator
+
+    with patch.object(service, "load_model", return_value=mock_model_instance), \
+         patch.object(service, "is_cuda_available", return_value=(True, "CUDA available")), \
+         patch("faster_whisper.BatchedInferencePipeline", return_value=mock_batched_instance):
+        service._device_used = "cuda"
+
+        result = service.transcribe(
+            audio_path=dummy_audio_file,
+            job_id="oom-recovery-job",
+            batch_size=8,
+        )
+
+        assert result is not None
+        assert result.text == "Recovered after OOM."
+        assert len(result.segments) == 1
+        mock_model_instance.transcribe.assert_called_once()
+
+
+def test_local_whisper_complete_oom_falls_back_to_cpu(dummy_audio_file):
+    """When all GPU transcribe strategies OOM, service should gracefully fall back to CPU."""
+    from app.services.whisper_local import LocalWhisperService
+
+    service = LocalWhisperService()
+
+    gpu_model_instance = MagicMock()
+    def _gpu_oom(*args, **kwargs):
+        raise RuntimeError("CUDA failed with error out of memory")
+    gpu_model_instance.transcribe.side_effect = _gpu_oom
+
+    cpu_model_instance = MagicMock()
+    mock_seg = MagicMock()
+    mock_seg.id = 1
+    mock_seg.seek = 0
+    mock_seg.start = 0.0
+    mock_seg.end = 2.0
+    mock_seg.text = "CPU fallback success."
+    mock_seg.avg_logprob = -0.2
+    mock_seg.no_speech_prob = 0.01
+    mock_seg.words = None
+    mock_info = MagicMock()
+    mock_info.language = "en"
+    mock_info.language_probability = 0.99
+    mock_info.duration = 5.0
+    cpu_model_instance.transcribe.return_value = ([mock_seg], mock_info)
+
+    def mock_load_model(force_reload=False, model_name=None, device=None, compute_type=None):
+        if device == "cpu":
+            return cpu_model_instance
+        return gpu_model_instance
+
+    with patch.object(service, "load_model", side_effect=mock_load_model), \
+         patch.object(service, "is_cuda_available", return_value=(True, "CUDA available")):
+        service._device_used = "cuda"
+
+        result = service.transcribe(
+            audio_path=dummy_audio_file,
+            job_id="cpu-fallback-job",
+            batch_size=1,  # Skip batched
+        )
+
+        assert result is not None
+        assert result.text == "CPU fallback success."
+        assert result.engine == "faster-whisper-cpu"
+
+
+

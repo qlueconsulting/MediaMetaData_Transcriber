@@ -20,6 +20,7 @@ class LocalWhisperService:
         self._loaded_model_name: Optional[str] = None
         self._device_used: Optional[str] = None
         self._loaded_device_index = None
+        self._loaded_compute_type: Optional[str] = None
 
     def is_cuda_available(self) -> Tuple[bool, str]:
         """Check if CUDA acceleration is available on the host system."""
@@ -140,14 +141,20 @@ class LocalWhisperService:
             "details": f"Multi-GPU enabled: {len(devices) or cuda_count} device(s) detected; Whisper bound to index {active_indices}" if cuda_available else "No CUDA devices detected",
         }
 
-    def load_model(self, force_reload: bool = False, model_name: Optional[str] = None):
+    def load_model(
+        self,
+        force_reload: bool = False,
+        model_name: Optional[str] = None,
+        device: Optional[str] = None,
+        compute_type: Optional[str] = None,
+    ):
         """Lazy load or return the preloaded faster-whisper model spanning available GPUs."""
         from faster_whisper import WhisperModel
 
         target_model = model_name or settings.WHISPER_MODEL
-        target_device = settings.WHISPER_DEVICE
-        compute_type = settings.WHISPER_COMPUTE_TYPE
-        device_indices = self.resolve_device_indices()
+        target_device = device or settings.WHISPER_DEVICE
+        target_compute_type = compute_type or settings.WHISPER_COMPUTE_TYPE
+        device_indices = self.resolve_device_indices() if target_device == "cuda" else 0
         num_workers = len(device_indices) if isinstance(device_indices, list) else 1
 
         # Validate CUDA availability
@@ -155,7 +162,7 @@ class LocalWhisperService:
         if target_device.lower() == "cuda" and not cuda_ok:
             log.warning(f"CUDA requested but unavailable ({cuda_msg}). Falling back to CPU for local whisper.")
             target_device = "cpu"
-            compute_type = "int8" if compute_type == "float16" else compute_type
+            target_compute_type = "int8" if target_compute_type == "float16" else target_compute_type
             device_indices = 0
             num_workers = 1
 
@@ -164,13 +171,14 @@ class LocalWhisperService:
                 self._loaded_model_name == target_model
                 and self._device_used == target_device
                 and self._loaded_device_index == device_indices
+                and getattr(self, "_loaded_compute_type", None) == target_compute_type
             ):
                 return self._model
 
         log.info(
             f"Loading faster-whisper model '{target_model}' "
             f"(device={target_device}, device_index={device_indices}, num_workers={num_workers}, "
-            f"compute_type={compute_type}, download_root={settings.MODEL_DIR})"
+            f"compute_type={target_compute_type}, download_root={settings.MODEL_DIR})"
         )
 
         settings.MODEL_DIR.mkdir(parents=True, exist_ok=True)
@@ -179,15 +187,16 @@ class LocalWhisperService:
             model_size_or_path=target_model,
             device=target_device,
             device_index=device_indices,
-            compute_type=compute_type,
+            compute_type=target_compute_type,
             download_root=str(settings.MODEL_DIR),
             num_workers=num_workers,
         )
         self._loaded_model_name = target_model
         self._device_used = target_device
         self._loaded_device_index = device_indices
+        self._loaded_compute_type = target_compute_type
         self._batched_model = None
-        log.info(f"Loaded faster-whisper model '{target_model}' on {target_device} (indices={device_indices}) successfully.")
+        log.info(f"Loaded faster-whisper model '{target_model}' on {target_device} (indices={device_indices}, compute={target_compute_type}) successfully.")
         return self._model
 
     def transcribe(
@@ -201,48 +210,130 @@ class LocalWhisperService:
         batch_size: Optional[int] = None,
         audio_duration: Optional[float] = None,
     ) -> TranscriptData:
-        """Transcribe audio file using local GPU faster-whisper with adaptive SLA batch scaling."""
+        """Transcribe audio with safe batch sizing and automatic self-healing OOM recovery."""
         target_model = model_name or settings.WHISPER_MODEL
         model = self.load_model(model_name=target_model)
         log.info(f"Starting local transcription for job {job_id} using model {self._loaded_model_name} on {self._device_used}")
 
-        # Adaptive batch sizing to guarantee < 30-second SLA
-        effective_batch_size = batch_size or settings.WHISPER_BATCH_SIZE
-        if audio_duration is not None and self._device_used == "cuda":
-            if audio_duration > 1200:
-                effective_batch_size = max(effective_batch_size, 20)
-            elif audio_duration > 600:
-                effective_batch_size = max(effective_batch_size, 16)
+        # Safe batch sizing (cap at 8 on 8GB VRAM to avoid CUDA OOM)
+        requested_batch_size = batch_size or settings.WHISPER_BATCH_SIZE
+        effective_batch_size = min(requested_batch_size, 8) if requested_batch_size > 0 else 8
 
-        segments_gen = None
-        info = None
-        use_batched = effective_batch_size > 1 and self._device_used == "cuda"
+        def _drain_segments(generator) -> Tuple[List[TranscriptSegment], str]:
+            """Safely iterate generator to trigger inference and catch runtime memory exceptions."""
+            segs: List[TranscriptSegment] = []
+            parts: List[str] = []
+            for seg in generator:
+                words = None
+                if word_timestamps and hasattr(seg, "words") and seg.words:
+                    words = [
+                        WordTimestamp(
+                            word=w.word,
+                            start=w.start,
+                            end=w.end,
+                            probability=getattr(w, "probability", None),
+                        )
+                        for w in seg.words
+                    ]
 
-        if use_batched:
-            try:
-                from faster_whisper import BatchedInferencePipeline
-                if self._batched_model is None or getattr(self._batched_model, "model", None) != model:
-                    self._batched_model = BatchedInferencePipeline(model=model)
-                log.info(
-                    f"Executing BatchedInferencePipeline (model={target_model}, batch_size={effective_batch_size}, "
-                    f"beam_size={settings.WHISPER_BEAM_SIZE}, vad_filter={settings.WHISPER_VAD_FILTER})"
+                segment_model = TranscriptSegment(
+                    id=seg.id,
+                    seek=getattr(seg, "seek", None),
+                    start=seg.start,
+                    end=seg.end,
+                    text=seg.text,
+                    avg_logprob=getattr(seg, "avg_logprob", None),
+                    no_speech_prob=getattr(seg, "no_speech_prob", None),
+                    words=words,
                 )
-                segments_gen, info = self._batched_model.transcribe(
+                segs.append(segment_model)
+                parts.append(seg.text)
+            return segs, "".join(parts).strip()
+
+        segments: Optional[List[TranscriptSegment]] = None
+        full_text: Optional[str] = None
+        info = None
+        used_engine = f"faster-whisper-{self._device_used or 'cuda'}"
+
+        # ----------------------------------------------------------------------
+        # Strategy 1: BatchedInferencePipeline (Adaptive batch size with retry)
+        # ----------------------------------------------------------------------
+        if effective_batch_size > 1 and self._device_used == "cuda":
+            for try_batch in [effective_batch_size, 4]:
+                try:
+                    from faster_whisper import BatchedInferencePipeline
+                    if self._batched_model is None or getattr(self._batched_model, "model", None) != model:
+                        self._batched_model = BatchedInferencePipeline(model=model)
+                    log.info(
+                        f"Executing BatchedInferencePipeline (model={target_model}, batch_size={try_batch}, "
+                        f"beam_size={settings.WHISPER_BEAM_SIZE}, vad_filter={settings.WHISPER_VAD_FILTER})"
+                    )
+                    gen, current_info = self._batched_model.transcribe(
+                        str(audio_path),
+                        batch_size=try_batch,
+                        beam_size=settings.WHISPER_BEAM_SIZE,
+                        language=language,
+                        initial_prompt=prompt,
+                        word_timestamps=word_timestamps,
+                        vad_filter=settings.WHISPER_VAD_FILTER,
+                        chunk_length=30,
+                    )
+                    segments, full_text = _drain_segments(gen)
+                    info = current_info
+                    break  # Success
+                except Exception as e:
+                    err = str(e).lower()
+                    if ("out of memory" in err or "cuda" in err) and try_batch > 4:
+                        log.warning(f"Batched inference OOM at batch_size={try_batch}. Retrying with batch_size=4...")
+                        continue
+                    log.warning(f"Batched inference failed ({e}), falling back to sequential GPU transcribe")
+                    break
+
+        # ----------------------------------------------------------------------
+        # Strategy 2: Standard sequential GPU transcribe (batch_size=1)
+        # ----------------------------------------------------------------------
+        if segments is None:
+            try:
+                log.info(f"Executing standard sequential transcribe for job {job_id}")
+                gen, info = model.transcribe(
                     str(audio_path),
-                    batch_size=effective_batch_size,
                     beam_size=settings.WHISPER_BEAM_SIZE,
                     language=language,
                     initial_prompt=prompt,
                     word_timestamps=word_timestamps,
                     vad_filter=settings.WHISPER_VAD_FILTER,
-                    chunk_length=30,
                 )
+                segments, full_text = _drain_segments(gen)
             except Exception as e:
-                log.warning(f"Batched inference failed ({e}), falling back to standard transcribe")
-                segments_gen = None
+                err = str(e).lower()
+                log.warning(f"Standard sequential GPU transcribe failed: {e}")
 
-        if segments_gen is None:
-            segments_gen, info = model.transcribe(
+                # --------------------------------------------------------------
+                # Strategy 3: Reload with int8_float16 compute_type (cuts VRAM in half)
+                # --------------------------------------------------------------
+                if ("out of memory" in err or "cuda" in err) and getattr(self, "_loaded_compute_type", None) != "int8_float16":
+                    try:
+                        log.warning("CUDA OOM encountered: Auto-recovering with compute_type='int8_float16'...")
+                        model = self.load_model(force_reload=True, model_name=target_model, compute_type="int8_float16")
+                        gen, info = model.transcribe(
+                            str(audio_path),
+                            beam_size=settings.WHISPER_BEAM_SIZE,
+                            language=language,
+                            initial_prompt=prompt,
+                            word_timestamps=word_timestamps,
+                            vad_filter=settings.WHISPER_VAD_FILTER,
+                        )
+                        segments, full_text = _drain_segments(gen)
+                    except Exception as e2:
+                        log.warning(f"int8_float16 recovery failed: {e2}")
+
+        # ----------------------------------------------------------------------
+        # Strategy 4: Graceful CPU Fallback (Guarantees request never hard-fails)
+        # ----------------------------------------------------------------------
+        if segments is None:
+            log.warning(f"All GPU execution strategies failed for job {job_id}. Falling back to CPU...")
+            cpu_model = self.load_model(force_reload=True, model_name=target_model, device="cpu", compute_type="int8")
+            gen, info = cpu_model.transcribe(
                 str(audio_path),
                 beam_size=settings.WHISPER_BEAM_SIZE,
                 language=language,
@@ -250,51 +341,22 @@ class LocalWhisperService:
                 word_timestamps=word_timestamps,
                 vad_filter=settings.WHISPER_VAD_FILTER,
             )
-
-        segments: List[TranscriptSegment] = []
-        full_text_parts: List[str] = []
-
-        for seg in segments_gen:
-            words = None
-            if word_timestamps and hasattr(seg, "words") and seg.words:
-                words = [
-                    WordTimestamp(
-                        word=w.word,
-                        start=w.start,
-                        end=w.end,
-                        probability=getattr(w, "probability", None),
-                    )
-                    for w in seg.words
-                ]
-
-            segment_model = TranscriptSegment(
-                id=seg.id,
-                seek=getattr(seg, "seek", None),
-                start=seg.start,
-                end=seg.end,
-                text=seg.text,
-                avg_logprob=getattr(seg, "avg_logprob", None),
-                no_speech_prob=getattr(seg, "no_speech_prob", None),
-                words=words,
-            )
-            segments.append(segment_model)
-            full_text_parts.append(seg.text)
-
-        full_text = "".join(full_text_parts).strip()
-        engine_name = f"faster-whisper-{self._device_used or 'cuda'}"
+            segments, full_text = _drain_segments(gen)
+            used_engine = "faster-whisper-cpu"
 
         log.info(
             f"Local transcription finished for job {job_id}: "
-            f"{len(segments)} segments, detected language '{info.language}' (prob={info.language_probability:.2f})"
+            f"{len(segments)} segments, detected language '{getattr(info, 'language', 'unknown')}' "
+            f"using {used_engine}"
         )
 
         return TranscriptData(
             job_id=job_id,
             text=full_text,
-            language=info.language,
-            language_probability=round(info.language_probability, 4) if info.language_probability else None,
+            language=getattr(info, "language", None),
+            language_probability=round(info.language_probability, 4) if hasattr(info, "language_probability") and info.language_probability else None,
             duration_seconds=round(info.duration, 2) if hasattr(info, "duration") and info.duration else None,
-            engine=engine_name,
+            engine=used_engine,
             model=self._loaded_model_name or settings.WHISPER_MODEL,
             segments=segments,
         )
