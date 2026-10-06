@@ -1,6 +1,7 @@
 .git
 .gitignore
 .dockerignore
+.github
 .venv
 venv
 __pycache__
@@ -8,7 +9,9 @@ __pycache__
 *.pyo
 *.pyd
 .pytest_cache
-tests/__pycache__
+tests
+deploy
+scripts
 storage
 jobs
 models
