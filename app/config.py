@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     # Local GPU Speech-to-Text (faster-whisper)
     WHISPER_MODEL: str = Field(
         default="large-v3",
-        description="Whisper model name (e.g. large-v3, medium, small)",
+        description="Whisper model name (e.g. large-v3, large-v3-turbo, medium, small)",
     )
     WHISPER_DEVICE: str = Field(
         default="cuda",
@@ -76,8 +76,16 @@ class Settings(BaseSettings):
         description="GPU device index for multi-GPU setups",
     )
     WHISPER_BEAM_SIZE: int = Field(
-        default=5,
-        description="Beam search size for decoding",
+        default=1,
+        description="Beam search size for decoding (1 = fast greedy search, 5 = exhaustive)",
+    )
+    WHISPER_BATCH_SIZE: int = Field(
+        default=8,
+        description="Batch size for BatchedInferencePipeline (e.g. 8 or 16 for GPU parallelism)",
+    )
+    WHISPER_VAD_FILTER: bool = Field(
+        default=True,
+        description="Enable Silero VAD to skip non-speech/silence sections, dramatically speeding up inference",
     )
 
     # Groq Cloud Whisper API Fallback
