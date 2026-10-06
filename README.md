@@ -108,7 +108,30 @@ All jobs persist artifacts to a structured volume directory mounted at `/srv/sto
 
 ---
 
-## 4. REST API Reference
+## 4. Embedded Testing Apparatus Web UI
+
+The microservice includes an embedded, self-contained single-page testing apparatus accessible directly via web browser at:
+```text
+http://localhost:8000/    or    http://localhost:8000/ui    or    http://localhost:8000/test
+```
+
+### Features of the Testing Apparatus:
+1. **Interactive Media Input:** Paste any media URL (YouTube, Vimeo, Twitter/X, TikTok, direct stream). Quick sample buttons provided for test videos.
+2. **Flexible Execution Modes:**
+   - **`Full Pipeline (Transcribe)`**: Runs the complete end-to-end resolution, 16kHz audio conversion, and GPU transcription.
+   - **`Metadata Only`**: Tests early 20-minute guardrail without downloading streams.
+   - **`Audio Extraction Only`**: Tests 16kHz MP3 conversion and 25MB file size ceiling.
+3. **Live Latency & Call Status Tracker:**
+   - Real-time status cards for Step 1 (Metadata), Step 2 (Audio), and Step 3 (Transcription).
+   - Displays exact HTTP status codes (e.g. `200 OK`, `400 Error`) and elapsed latency for each API call in milliseconds / seconds.
+4. **Rich Visual Artifact Inspection:**
+   - **Metadata Card:** Video thumbnail, title, creator, duration, view count, and Early 20-Minute Guardrail status pill.
+   - **Audio Card:** Converted audio specs (`16kHz Mono MP3 @ 64kbps`), storage path, exact file size, 25MB guardrail check pill, and an embedded HTML5 audio player.
+   - **Transcript Card:** Engine identifier (`faster-whisper-cuda` / `groq-whisper-cloud`), language detected with confidence, copy-to-clipboard button, subtitle export downloads (`.srt`, `.vtt`, `.txt`, `.json`), and an interactive segment table where clicking any timestamp jumps audio playback to that exact second.
+
+---
+
+## 5. REST API Reference
 
 Interactive OpenAPI documentation is available at `/docs` (Swagger UI) and `/redoc`.
 
@@ -216,7 +239,7 @@ curl -O http://localhost:8000/api/v1/jobs/{job_id}/audio
 
 ---
 
-## 5. Host Setup & Deployment on Ubuntu 24.04
+## 6. Host Setup & Deployment on Ubuntu 24.04
 
 ### Step 1: Install NVIDIA Drivers & Container Toolkit
 On your Ubuntu 24.04 server with the NVIDIA RTX 2060 Super:
@@ -270,7 +293,7 @@ docker compose logs -f transcriber
 
 ---
 
-## 6. OPNsense Reverse Proxy Setup
+## 7. OPNsense Reverse Proxy Setup
 
 To expose the service securely behind your residential IP and OPNsense firewall:
 
@@ -289,7 +312,7 @@ To expose the service securely behind your residential IP and OPNsense firewall:
 
 ---
 
-## 7. Running Tests Locally
+## 8. Running Tests Locally
 
 Run the complete test suite:
 ```bash
@@ -301,6 +324,6 @@ All guardrails (20-minute limit, 25MB file size ceiling, storage structure, fall
 
 ---
 
-## 8. License
+## 9. License
 
 MIT License.

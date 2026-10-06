@@ -1,0 +1,1191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MediaMetaData_Transcriber | Testing Apparatus</title>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card-bg: #111827;
+      --card-border: #1f293d;
+      --card-hover: #182235;
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --text-dim: #6b7280;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --primary-glow: rgba(59, 130, 246, 0.25);
+      --success: #10b981;
+      --success-bg: rgba(16, 185, 129, 0.15);
+      --danger: #ef4444;
+      --danger-bg: rgba(239, 68, 68, 0.15);
+      --warning: #f59e0b;
+      --warning-bg: rgba(245, 158, 11, 0.15);
+      --purple: #8b5cf6;
+      --purple-bg: rgba(139, 92, 246, 0.15);
+      --code-bg: #080d1a;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.5;
+      padding: 1.5rem;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    /* Header */
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--card-border);
+      margin-bottom: 1.5rem;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .logo-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.4rem;
+      font-weight: bold;
+      color: white;
+      box-shadow: 0 0 15px var(--primary-glow);
+    }
+
+    .brand h1 {
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.02em;
+    }
+
+    .brand p {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .health-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8rem;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.25rem 0.65rem;
+      border-radius: 9999px;
+      font-weight: 600;
+      font-size: 0.75rem;
+      border: 1px solid transparent;
+    }
+
+    .pill-green {
+      background: var(--success-bg);
+      color: var(--success);
+      border-color: rgba(16, 185, 129, 0.3);
+    }
+
+    .pill-red {
+      background: var(--danger-bg);
+      color: var(--danger);
+      border-color: rgba(239, 68, 68, 0.3);
+    }
+
+    .pill-purple {
+      background: var(--purple-bg);
+      color: var(--purple);
+      border-color: rgba(139, 92, 246, 0.3);
+    }
+
+    .pill-blue {
+      background: var(--primary-glow);
+      color: var(--primary);
+      border-color: rgba(59, 130, 246, 0.3);
+    }
+
+    .pill-gray {
+      background: rgba(156, 163, 175, 0.15);
+      color: var(--text-muted);
+      border-color: rgba(156, 163, 175, 0.25);
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    /* Cards */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 1.25rem;
+      margin-bottom: 1.25rem;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .card-title {
+      font-size: 1.05rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    /* Input Apparatus */
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .url-row {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    input[type="text"], select, textarea {
+      background: var(--code-bg);
+      border: 1px solid var(--card-border);
+      color: var(--text-main);
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    input[type="text"]:focus, select:focus, textarea:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--primary-glow);
+    }
+
+    .url-input {
+      flex: 1;
+      min-width: 280px;
+    }
+
+    button {
+      cursor: pointer;
+      font-weight: 600;
+      border-radius: 8px;
+      padding: 0.75rem 1.25rem;
+      border: none;
+      transition: background 0.15s, transform 0.05s, opacity 0.15s;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+      font-size: 0.9rem;
+    }
+
+    button:active {
+      transform: scale(0.98);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: white;
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: var(--primary-hover);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-main);
+      border: 1px solid var(--card-border);
+    }
+    .btn-secondary:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.12);
+    }
+
+    .btn-purple {
+      background: var(--purple);
+      color: white;
+    }
+    .btn-purple:hover:not(:disabled) {
+      background: #7c3aed;
+    }
+
+    .action-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+    }
+
+    .toggle-section {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .toggle-item {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .toggle-item input[type="checkbox"] {
+      accent-color: var(--primary);
+      cursor: pointer;
+    }
+
+    /* Diagnostics Stepper */
+    .stepper {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .step-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 0.85rem 1rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .step-card.active {
+      border-color: var(--primary);
+      box-shadow: 0 0 10px var(--primary-glow);
+    }
+
+    .step-card.success {
+      border-color: rgba(16, 185, 129, 0.4);
+    }
+
+    .step-card.failed {
+      border-color: rgba(239, 68, 68, 0.4);
+    }
+
+    .step-title {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.25rem;
+    }
+
+    .step-status {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .step-status-text {
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+
+    .step-latency {
+      font-family: monospace;
+      font-size: 0.8rem;
+      color: var(--text-dim);
+    }
+
+    /* Results layout */
+    .results-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.25rem;
+      margin-bottom: 1.25rem;
+    }
+
+    @media (max-width: 900px) {
+      .results-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Metadata Display */
+    .meta-content {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .meta-thumb {
+      width: 140px;
+      height: 90px;
+      border-radius: 8px;
+      object-fit: cover;
+      background: var(--code-bg);
+      border: 1px solid var(--card-border);
+      flex-shrink: 0;
+    }
+
+    .meta-details {
+      flex: 1;
+      min-width: 200px;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      font-size: 0.85rem;
+    }
+
+    .meta-title {
+      font-weight: 700;
+      font-size: 1rem;
+      color: #fff;
+      line-height: 1.3;
+    }
+
+    .meta-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.5rem;
+      color: var(--text-muted);
+      padding: 0.2rem 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    .meta-row strong {
+      color: var(--text-main);
+    }
+
+    /* Guardrail Banner */
+    .guardrail-alert {
+      margin-top: 0.75rem;
+      padding: 0.65rem 0.85rem;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-weight: 500;
+    }
+
+    .guardrail-pass {
+      background: var(--success-bg);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .guardrail-fail {
+      background: var(--danger-bg);
+      color: #f87171;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    /* Audio section */
+    .audio-player-box {
+      background: var(--code-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 1rem;
+      margin-top: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    audio {
+      width: 100%;
+      height: 40px;
+      outline: none;
+    }
+
+    /* Transcript section */
+    .transcript-box {
+      background: var(--code-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 1rem;
+      max-height: 420px;
+      overflow-y: auto;
+      font-size: 0.9rem;
+      line-height: 1.6;
+      white-space: pre-wrap;
+    }
+
+    .segments-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+      margin-top: 0.75rem;
+    }
+
+    .segments-table th {
+      text-align: left;
+      padding: 0.4rem 0.6rem;
+      color: var(--text-dim);
+      border-bottom: 1px solid var(--card-border);
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 0.75rem;
+    }
+
+    .segments-table td {
+      padding: 0.5rem 0.6rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      vertical-align: top;
+    }
+
+    .segments-table tr:hover {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .time-badge {
+      font-family: monospace;
+      color: var(--primary);
+      cursor: pointer;
+      text-decoration: underline;
+      white-space: nowrap;
+    }
+
+    .time-badge:hover {
+      color: #93c5fd;
+    }
+
+    .format-buttons {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .btn-xs {
+      padding: 0.35rem 0.65rem;
+      font-size: 0.75rem;
+      border-radius: 6px;
+    }
+
+    /* Error alert */
+    .error-banner {
+      background: var(--danger-bg);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      color: #fca5a5;
+      padding: 0.85rem 1rem;
+      border-radius: 8px;
+      margin-bottom: 1.25rem;
+      font-size: 0.9rem;
+      display: none;
+    }
+
+    /* Spinner */
+    .spinner {
+      border: 2px solid rgba(255, 255, 255, 0.2);
+      border-left-color: white;
+      border-radius: 50%;
+      width: 14px;
+      height: 14px;
+      animation: spin 0.8s linear infinite;
+      display: inline-block;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Raw JSON modal / collapsible */
+    details {
+      margin-top: 0.75rem;
+      font-size: 0.8rem;
+    }
+    details summary {
+      cursor: pointer;
+      color: var(--primary);
+      margin-bottom: 0.4rem;
+    }
+    pre {
+      background: var(--code-bg);
+      padding: 0.75rem;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-size: 0.75rem;
+      color: #a7f3d0;
+      border: 1px solid var(--card-border);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header with System Diagnostics -->
+    <header>
+      <div class="brand">
+        <div class="logo-icon">M</div>
+        <div>
+          <h1>MediaMetaData_Transcriber</h1>
+          <p>Residential GPU Microservice &bull; Testing Apparatus</p>
+        </div>
+      </div>
+
+      <div class="health-bar" id="healthBar">
+        <span class="pill pill-gray" id="statusPill"><span class="dot"></span> Connecting...</span>
+        <span class="pill pill-purple" id="gpuPill">Checking Hardware...</span>
+        <span class="pill pill-blue">Limit: 20m (1,200s)</span>
+        <span class="pill pill-blue">Audio: &le; 25 MB</span>
+      </div>
+    </header>
+
+    <!-- Error Banner -->
+    <div class="error-banner" id="errorBanner"></div>
+
+    <!-- Testing Apparatus Controls -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <span>Target Media Input</span>
+        </div>
+        <div>
+          <button class="btn-secondary btn-xs" onclick="setSampleUrl('rick')">Sample (Rickroll 3m)</button>
+          <button class="btn-secondary btn-xs" onclick="setSampleUrl('over20')">Sample (Over 20m)</button>
+        </div>
+      </div>
+
+      <div class="input-group">
+        <div class="url-row">
+          <input 
+            type="text" 
+            id="mediaUrl" 
+            class="url-input" 
+            placeholder="Paste public media URL (YouTube, Vimeo, Twitter/X, TikTok, direct MP4)..." 
+            value="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+          />
+        </div>
+
+        <div class="action-row">
+          <button class="btn-primary" id="btnTranscribe" onclick="executePipeline('transcribe')">
+            <span>&#9654; Full Pipeline (Transcribe)</span>
+          </button>
+          <button class="btn-purple" id="btnMetadata" onclick="executePipeline('metadata')">
+            <span>&#9673; Metadata Only</span>
+          </button>
+          <button class="btn-secondary" id="btnAudio" onclick="executePipeline('audio')">
+            <span>&#9835; Audio Extraction Only</span>
+          </button>
+          <button class="btn-secondary" onclick="resetForm()">Reset</button>
+        </div>
+
+        <div class="toggle-section">
+          <div class="toggle-item">
+            <label for="langSelect">Language:</label>
+            <select id="langSelect" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">
+              <option value="">Auto-Detect</option>
+              <option value="en">English (en)</option>
+              <option value="es">Spanish (es)</option>
+              <option value="fr">French (fr)</option>
+              <option value="de">German (de)</option>
+              <option value="it">Italian (it)</option>
+              <option value="ja">Japanese (ja)</option>
+              <option value="zh">Chinese (zh)</option>
+            </select>
+          </div>
+          <div class="toggle-item">
+            <label for="engineSelect">STT Engine:</label>
+            <select id="engineSelect" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">
+              <option value="">Auto (Local CUDA &rarr; Groq)</option>
+              <option value="cuda">Force Local CUDA (RTX 2060S)</option>
+              <option value="groq">Force Groq Cloud API</option>
+              <option value="cpu">Force CPU</option>
+            </select>
+          </div>
+          <div class="toggle-item">
+            <input type="checkbox" id="wordTimestamps" />
+            <label for="wordTimestamps">Word-level timestamps</label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Real-time Stepper & Call Latencies -->
+    <div class="stepper">
+      <div class="step-card" id="stepMeta">
+        <div class="step-title">Step 1: Metadata Resolution</div>
+        <div class="step-status">
+          <span class="step-status-text" id="stepMetaText">Idle</span>
+          <span class="step-latency" id="stepMetaLatency">--</span>
+        </div>
+      </div>
+
+      <div class="step-card" id="stepAudio">
+        <div class="step-title">Step 2: 16kHz Audio & Size Guard</div>
+        <div class="step-status">
+          <span class="step-status-text" id="stepAudioText">Idle</span>
+          <span class="step-latency" id="stepAudioLatency">--</span>
+        </div>
+      </div>
+
+      <div class="step-card" id="stepSTT">
+        <div class="step-title">Step 3: Whisper Transcription</div>
+        <div class="step-status">
+          <span class="step-status-text" id="stepSTTText">Idle</span>
+          <span class="step-latency" id="stepSTTLatency">--</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Results Display Grid -->
+    <div class="results-grid">
+      <!-- Card 1: Metadata -->
+      <div class="card" id="metaCard">
+        <div class="card-header">
+          <div class="card-title">
+            <span>Media Metadata</span>
+          </div>
+          <span class="pill pill-gray" id="metaStatusPill">Awaiting</span>
+        </div>
+
+        <div id="metaEmptyState" style="color: var(--text-dim); font-size: 0.85rem; padding: 1rem 0;">
+          Execute a request above to inspect video metadata and the early 20-minute guardrail.
+        </div>
+
+        <div id="metaContent" style="display: none;">
+          <div class="meta-content">
+            <img id="metaThumb" class="meta-thumb" src="" alt="Thumbnail" />
+            <div class="meta-details">
+              <div class="meta-title" id="metaTitle">--</div>
+              <div class="meta-row"><span>Creator / Channel:</span> <strong id="metaCreator">--</strong></div>
+              <div class="meta-row"><span>Platform / Extractor:</span> <strong id="metaPlatform">--</strong></div>
+              <div class="meta-row"><span>Duration:</span> <strong id="metaDuration">--</strong></div>
+              <div class="meta-row"><span>Views:</span> <strong id="metaViews">--</strong></div>
+            </div>
+          </div>
+
+          <!-- Early 20-minute decision alert -->
+          <div id="durationGuardrailBanner" class="guardrail-alert guardrail-pass">
+            <span id="durationGuardrailIcon">&#10003;</span>
+            <span id="durationGuardrailText">Duration passes operational limit.</span>
+          </div>
+
+          <details>
+            <summary>View Raw Metadata JSON</summary>
+            <pre><code id="rawMetaJson">{}</code></pre>
+          </details>
+        </div>
+      </div>
+
+      <!-- Card 2: Audio Artifact -->
+      <div class="card" id="audioCard">
+        <div class="card-header">
+          <div class="card-title">
+            <span>Audio Artifact (&le; 25MB)</span>
+          </div>
+          <span class="pill pill-gray" id="audioStatusPill">Awaiting</span>
+        </div>
+
+        <div id="audioEmptyState" style="color: var(--text-dim); font-size: 0.85rem; padding: 1rem 0;">
+          Audio artifact details and player will appear after audio extraction.
+        </div>
+
+        <div id="audioContent" style="display: none;">
+          <div class="meta-row"><span>Encoding Specs:</span> <strong>16kHz Mono MP3 @ 64kbps</strong></div>
+          <div class="meta-row"><span>Storage Path:</span> <strong id="audioStoragePath" style="font-family: monospace; font-size: 0.75rem;">--</strong></div>
+          <div class="meta-row"><span>Audio File Size:</span> <strong id="audioFileSize">--</strong></div>
+
+          <!-- Audio Size Guardrail Alert -->
+          <div id="audioGuardrailBanner" class="guardrail-alert guardrail-pass">
+            <span>&#10003;</span>
+            <span id="audioGuardrailText">File size &le; 25 MB ceiling.</span>
+          </div>
+
+          <div class="audio-player-box">
+            <audio id="audioElement" controls preload="none">
+              Your browser does not support the audio element.
+            </audio>
+            <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+              <a id="btnDownloadAudio" class="btn-secondary btn-xs" href="#" download>Download audio.mp3</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Transcript Output Card -->
+    <div class="card" id="transcriptCard">
+      <div class="card-header">
+        <div class="card-title">
+          <span>AI Transcription Output</span>
+          <span class="pill pill-gray" id="sttStatusPill">Awaiting</span>
+        </div>
+        <div class="format-buttons" id="transcriptActionButtons" style="display: none;">
+          <button class="btn-secondary btn-xs" onclick="copyTranscript()">Copy Text</button>
+          <button class="btn-secondary btn-xs" onclick="downloadArtifact('txt')">.TXT</button>
+          <button class="btn-secondary btn-xs" onclick="downloadArtifact('srt')">.SRT</button>
+          <button class="btn-secondary btn-xs" onclick="downloadArtifact('vtt')">.VTT</button>
+          <button class="btn-secondary btn-xs" onclick="downloadArtifact('json')">.JSON</button>
+        </div>
+      </div>
+
+      <div id="sttEmptyState" style="color: var(--text-dim); font-size: 0.85rem; padding: 1rem 0;">
+        Full transcription, detected language, and timestamped segments will appear here once transcribed.
+      </div>
+
+      <div id="sttContent" style="display: none;">
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem;">
+          <span class="pill pill-purple" id="enginePill">Engine: --</span>
+          <span class="pill pill-blue" id="langPill">Language: --</span>
+          <span class="pill pill-gray" id="totalTimePill">Execution: --</span>
+        </div>
+
+        <div class="transcript-box" id="transcriptText"></div>
+
+        <div style="margin-top: 1.25rem;">
+          <h3 style="font-size: 0.95rem; font-weight: 600; margin-bottom: 0.5rem;">Segment Timestamps (Click to jump audio)</h3>
+          <div style="max-height: 300px; overflow-y: auto;">
+            <table class="segments-table">
+              <thead>
+                <tr>
+                  <th style="width: 110px;">Timestamp</th>
+                  <th>Segment Text</th>
+                </tr>
+              </thead>
+              <tbody id="segmentsTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // State management
+    let activeJobId = null;
+    let currentTranscriptData = null;
+
+    // Load initial health diagnostics on boot
+    async function fetchHealthDiagnostics() {
+      try {
+        const res = await fetch('/api/v1/health');
+        if (!res.ok) throw new Error('Health check failed: ' + res.status);
+        const data = await res.json();
+
+        const statusPill = document.getElementById('statusPill');
+        statusPill.className = 'pill pill-green';
+        statusPill.innerHTML = '<span class="dot"></span> Online (v' + data.version + ')';
+
+        const gpuPill = document.getElementById('gpuPill');
+        if (data.hardware.cuda_available) {
+          const dev = data.hardware.device_name || 'CUDA GPU';
+          const vram = data.hardware.vram_total_mb ? ` (${(data.hardware.vram_total_mb/1024).toFixed(1)}GB)` : '';
+          gpuPill.className = 'pill pill-green';
+          gpuPill.textContent = 'CUDA: ' + dev + vram;
+        } else {
+          gpuPill.className = 'pill pill-purple';
+          gpuPill.textContent = data.groq_fallback.configured ? 'Groq Fallback Ready' : 'CPU Mode';
+        }
+      } catch (err) {
+        const statusPill = document.getElementById('statusPill');
+        statusPill.className = 'pill pill-red';
+        statusPill.innerHTML = '<span class="dot"></span> Offline / Unreachable';
+      }
+    }
+
+    function setSampleUrl(type) {
+      const input = document.getElementById('mediaUrl');
+      if (type === 'rick') {
+        input.value = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+      } else if (type === 'over20') {
+        // Long sample video URL
+        input.value = 'https://www.youtube.com/watch?v=b005iq6b9jM';
+      }
+    }
+
+    function resetForm() {
+      document.getElementById('errorBanner').style.display = 'none';
+      resetSteppers();
+      document.getElementById('metaEmptyState').style.display = 'block';
+      document.getElementById('metaContent').style.display = 'none';
+      document.getElementById('audioEmptyState').style.display = 'block';
+      document.getElementById('audioContent').style.display = 'none';
+      document.getElementById('sttEmptyState').style.display = 'block';
+      document.getElementById('sttContent').style.display = 'none';
+      document.getElementById('transcriptActionButtons').style.display = 'none';
+      activeJobId = null;
+      currentTranscriptData = null;
+    }
+
+    function resetSteppers() {
+      ['stepMeta', 'stepAudio', 'stepSTT'].forEach(id => {
+        const el = document.getElementById(id);
+        el.className = 'step-card';
+      });
+      document.getElementById('stepMetaText').textContent = 'Idle';
+      document.getElementById('stepMetaLatency').textContent = '--';
+      document.getElementById('stepAudioText').textContent = 'Idle';
+      document.getElementById('stepAudioLatency').textContent = '--';
+      document.getElementById('stepSTTText').textContent = 'Idle';
+      document.getElementById('stepSTTLatency').textContent = '--';
+    }
+
+    function setButtonLoading(isLoading) {
+      ['btnTranscribe', 'btnMetadata', 'btnAudio'].forEach(id => {
+        document.getElementById(id).disabled = isLoading;
+      });
+    }
+
+    function showError(message) {
+      const banner = document.getElementById('errorBanner');
+      banner.textContent = message;
+      banner.style.display = 'block';
+    }
+
+    function hideError() {
+      document.getElementById('errorBanner').style.display = 'none';
+    }
+
+    // Main Testing Execution Engine
+    async function executePipeline(mode) {
+      hideError();
+      const url = document.getElementById('mediaUrl').value.trim();
+      if (!url) {
+        showError('Please paste a media URL.');
+        return;
+      }
+
+      setButtonLoading(true);
+      resetSteppers();
+
+      const lang = document.getElementById('langSelect').value || null;
+      const engine = document.getElementById('engineSelect').value || null;
+      const wordTimestamps = document.getElementById('wordTimestamps').checked;
+
+      const startTime = performance.now();
+
+      try {
+        if (mode === 'metadata') {
+          await runMetadataCall(url);
+        } else if (mode === 'audio') {
+          await runAudioCall(url);
+        } else if (mode === 'transcribe') {
+          await runTranscribeCall(url, lang, engine, wordTimestamps);
+        }
+      } catch (err) {
+        showError(err.message || 'Operation failed');
+      } finally {
+        setButtonLoading(false);
+      }
+    }
+
+    // Call 1: POST /api/v1/metadata
+    async function runMetadataCall(url) {
+      const stepEl = document.getElementById('stepMeta');
+      stepEl.className = 'step-card active';
+      document.getElementById('stepMetaText').innerHTML = '<span class="spinner"></span> Resolving...';
+
+      const t0 = performance.now();
+      const res = await fetch('/api/v1/metadata', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: url })
+      });
+      const t1 = performance.now();
+      const duration = (t1 - t0).toFixed(0) + ' ms';
+      document.getElementById('stepMetaLatency').textContent = duration;
+
+      if (!res.ok) {
+        stepEl.className = 'step-card failed';
+        document.getElementById('stepMetaText').textContent = `${res.status} Error`;
+        const errJson = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(`Metadata call failed (${res.status}): ${errJson.detail || res.statusText}`);
+      }
+
+      const data = await res.json();
+      stepEl.className = 'step-card success';
+      document.getElementById('stepMetaText').textContent = '200 OK';
+
+      renderMetadata(data);
+    }
+
+    // Call 2: POST /api/v1/extract-audio
+    async function runAudioCall(url) {
+      // Step 1: Metadata resolution happens inside extract-audio
+      const stepMeta = document.getElementById('stepMeta');
+      const stepAudio = document.getElementById('stepAudio');
+
+      stepMeta.className = 'step-card active';
+      stepAudio.className = 'step-card active';
+      document.getElementById('stepAudioText').innerHTML = '<span class="spinner"></span> Extracting 16kHz MP3...';
+
+      const t0 = performance.now();
+      const res = await fetch('/api/v1/extract-audio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: url })
+      });
+      const t1 = performance.now();
+      const duration = (t1 - t0).toFixed(0) + ' ms';
+      document.getElementById('stepAudioLatency').textContent = duration;
+
+      if (!res.ok) {
+        stepAudio.className = 'step-card failed';
+        document.getElementById('stepAudioText').textContent = `${res.status} Error`;
+        const errJson = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(`Audio extraction failed (${res.status}): ${errJson.detail || res.statusText}`);
+      }
+
+      const data = await res.json();
+      stepMeta.className = 'step-card success';
+      stepMeta.querySelector('#stepMetaText').textContent = '200 OK';
+      stepAudio.className = 'step-card success';
+      document.getElementById('stepAudioText').textContent = '200 OK';
+
+      activeJobId = data.job_id;
+      renderMetadata(data.meta);
+      renderAudio(data.audio_path, data.audio_size_bytes, data.job_id);
+    }
+
+    // Call 3: POST /api/v1/transcribe
+    async function runTranscribeCall(url, lang, engine, wordTimestamps) {
+      const stepMeta = document.getElementById('stepMeta');
+      const stepAudio = document.getElementById('stepAudio');
+      const stepSTT = document.getElementById('stepSTT');
+
+      stepMeta.className = 'step-card active';
+      stepAudio.className = 'step-card active';
+      stepSTT.className = 'step-card active';
+
+      document.getElementById('stepMetaText').textContent = 'Resolving...';
+      document.getElementById('stepAudioText').textContent = 'Queued';
+      document.getElementById('stepSTTText').innerHTML = '<span class="spinner"></span> Transcribing...';
+
+      const t0 = performance.now();
+      const payload = { url: url };
+      if (lang) payload.language = lang;
+      if (engine) payload.force_engine = engine;
+      if (wordTimestamps) payload.word_timestamps = true;
+
+      const res = await fetch('/api/v1/transcribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const t1 = performance.now();
+      const duration = ((t1 - t0) / 1000).toFixed(2) + 's';
+      document.getElementById('stepSTTLatency').textContent = duration;
+
+      if (!res.ok) {
+        stepSTT.className = 'step-card failed';
+        document.getElementById('stepSTTText').textContent = `${res.status} Error`;
+        const errJson = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(`Pipeline failed (${res.status}): ${errJson.detail || res.statusText}`);
+      }
+
+      const data = await res.json();
+
+      stepMeta.className = 'step-card success';
+      stepMeta.querySelector('#stepMetaText').textContent = '200 OK';
+      stepAudio.className = 'step-card success';
+      stepAudio.querySelector('#stepAudioText').textContent = '200 OK';
+      stepSTT.className = 'step-card success';
+      document.getElementById('stepSTTText').textContent = '200 OK';
+
+      activeJobId = data.job_id;
+      if (data.meta) renderMetadata(data.meta);
+      if (data.audio_size_bytes) {
+        renderAudio(`/api/v1/jobs/${data.job_id}/audio`, data.audio_size_bytes, data.job_id);
+      }
+      if (data.transcript) {
+        renderTranscript(data.transcript, data.execution_time_seconds);
+      }
+    }
+
+    // Render Metadata Card
+    function renderMetadata(meta) {
+      document.getElementById('metaEmptyState').style.display = 'none';
+      document.getElementById('metaContent').style.display = 'block';
+
+      document.getElementById('metaTitle').textContent = meta.title || 'Untitled';
+      document.getElementById('metaCreator').textContent = meta.creator || meta.uploader || 'Unknown';
+      document.getElementById('metaPlatform').textContent = (meta.platform || meta.extractor || 'Web').toUpperCase();
+
+      const durFormatted = meta.duration_formatted || (meta.duration_seconds ? `${meta.duration_seconds}s` : 'Unknown');
+      document.getElementById('metaDuration').textContent = `${durFormatted} (${meta.duration_seconds || 0}s)`;
+      document.getElementById('metaViews').textContent = meta.view_count ? meta.view_count.toLocaleString() : 'N/A';
+
+      const thumb = document.getElementById('metaThumb');
+      if (meta.thumbnail) {
+        thumb.src = meta.thumbnail;
+        thumb.style.display = 'block';
+      } else {
+        thumb.style.display = 'none';
+      }
+
+      // Early 20-minute decision banner
+      const banner = document.getElementById('durationGuardrailBanner');
+      const bannerText = document.getElementById('durationGuardrailText');
+      const bannerIcon = document.getElementById('durationGuardrailIcon');
+      const statusPill = document.getElementById('metaStatusPill');
+
+      if (meta.exceeds_duration_limit) {
+        banner.className = 'guardrail-alert guardrail-fail';
+        bannerIcon.innerHTML = '&#9888;';
+        bannerText.textContent = `REJECTED: Video is ${meta.duration_formatted} (> 20 mins / 1,200s). Transcription forbidden!`;
+        statusPill.className = 'pill pill-red';
+        statusPill.textContent = 'Exceeds 20m';
+      } else {
+        banner.className = 'guardrail-alert guardrail-pass';
+        bannerIcon.innerHTML = '&#10003;';
+        bannerText.textContent = `PASS: Video is ${meta.duration_formatted} (<= 20 mins / 1,200s). Permitted for STT.`;
+        statusPill.className = 'pill pill-green';
+        statusPill.textContent = 'Within Limit';
+      }
+
+      document.getElementById('rawMetaJson').textContent = JSON.stringify(meta, null, 2);
+    }
+
+    // Render Audio Card
+    function renderAudio(audioPath, sizeBytes, jobId) {
+      document.getElementById('audioEmptyState').style.display = 'none';
+      document.getElementById('audioContent').style.display = 'block';
+
+      document.getElementById('audioStoragePath').textContent = `/srv/storage/jobs/${jobId}/audio.mp3`;
+
+      const sizeMb = (sizeBytes / (1024 * 1024)).toFixed(2);
+      document.getElementById('audioFileSize').textContent = `${sizeMb} MB (${sizeBytes.toLocaleString()} bytes)`;
+
+      const banner = document.getElementById('audioGuardrailBanner');
+      const bannerText = document.getElementById('audioGuardrailText');
+      const statusPill = document.getElementById('audioStatusPill');
+
+      if (sizeBytes > 25 * 1024 * 1024) {
+        banner.className = 'guardrail-alert guardrail-fail';
+        bannerText.textContent = `REJECTED: Audio file size is ${sizeMb} MB (> 25.00 MB limit).`;
+        statusPill.className = 'pill pill-red';
+        statusPill.textContent = '> 25 MB';
+      } else {
+        banner.className = 'guardrail-alert guardrail-pass';
+        bannerText.textContent = `PASS: Audio size is ${sizeMb} MB (<= 25.00 MB ceiling).`;
+        statusPill.className = 'pill pill-green';
+        statusPill.textContent = `${sizeMb} MB`;
+      }
+
+      // Configure Audio Player
+      const audioEl = document.getElementById('audioElement');
+      const audioUrl = `/api/v1/jobs/${jobId}/audio`;
+      audioEl.src = audioUrl;
+
+      const btnDownload = document.getElementById('btnDownloadAudio');
+      btnDownload.href = audioUrl;
+    }
+
+    // Render Transcript Card
+    function renderTranscript(transcript, execSeconds) {
+      currentTranscriptData = transcript;
+
+      document.getElementById('sttEmptyState').style.display = 'none';
+      document.getElementById('sttContent').style.display = 'block';
+      document.getElementById('transcriptActionButtons').style.display = 'flex';
+
+      document.getElementById('enginePill').textContent = 'Engine: ' + transcript.engine;
+      document.getElementById('langPill').textContent = 'Language: ' + transcript.language.toUpperCase() + (transcript.language_probability ? ` (${(transcript.language_probability * 100).toFixed(0)}%)` : '');
+      document.getElementById('totalTimePill').textContent = execSeconds ? `Latency: ${execSeconds}s` : 'Completed';
+
+      const statusPill = document.getElementById('sttStatusPill');
+      statusPill.className = 'pill pill-green';
+      statusPill.textContent = 'Transcribed';
+
+      // Full text
+      document.getElementById('transcriptText').textContent = transcript.text || '(Empty audio / no speech detected)';
+
+      // Segment Table
+      const tbody = document.getElementById('segmentsTableBody');
+      tbody.innerHTML = '';
+
+      if (transcript.segments && transcript.segments.length > 0) {
+        transcript.segments.forEach(seg => {
+          const row = document.createElement('tr');
+
+          const startStr = formatSec(seg.start);
+          const endStr = formatSec(seg.end);
+
+          row.innerHTML = `
+            <td>
+              <span class="time-badge" onclick="seekAudio(${seg.start})">${startStr} - ${endStr}</span>
+            </td>
+            <td>${escapeHtml(seg.text)}</td>
+          `;
+          tbody.appendChild(row);
+        });
+      } else {
+        tbody.innerHTML = '<tr><td colspan="2" style="color: var(--text-dim);">No distinct segments available.</td></tr>';
+      }
+    }
+
+    function seekAudio(seconds) {
+      const audioEl = document.getElementById('audioElement');
+      audioEl.currentTime = seconds;
+      audioEl.play();
+    }
+
+    function formatSec(seconds) {
+      const s = Math.floor(seconds % 60);
+      const m = Math.floor((seconds / 60) % 60);
+      return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function copyTranscript() {
+      if (!currentTranscriptData) return;
+      navigator.clipboard.writeText(currentTranscriptData.text).then(() => {
+        alert('Transcript copied to clipboard!');
+      });
+    }
+
+    function downloadArtifact(fmt) {
+      if (!activeJobId) return;
+      window.open(`/api/v1/jobs/${activeJobId}/transcript?format=${fmt}`, '_blank');
+    }
+
+    // Initialize diagnostics on window load
+    window.addEventListener('DOMContentLoaded', fetchHealthDiagnostics);
+  </script>
+</body>
+</html>

@@ -12,13 +12,31 @@ from app.models.transcript import TranscriptData, TranscriptSegment
 class TestHealthEndpoints:
     """Test health check and root endpoints."""
 
-    def test_root_endpoint(self, client: TestClient):
+    def test_root_endpoint_json(self, client: TestClient):
         response = client.get("/")
         assert response.status_code == 200
         data = response.json()
         assert data["service"] == "MediaMetaData_Transcriber"
         assert data["status"] == "online"
         assert data["guardrails"]["max_video_duration_seconds"] == 1200
+
+    def test_root_endpoint_html(self, client: TestClient):
+        response = client.get("/", headers={"Accept": "text/html,application/xhtml+xml"})
+        assert response.status_code == 200
+        assert "text/html" in response.headers["content-type"]
+        assert "MediaMetaData_Transcriber | Testing Apparatus" in response.text
+
+    def test_testing_ui_endpoint(self, client: TestClient):
+        response = client.get("/ui")
+        assert response.status_code == 200
+        assert "text/html" in response.headers["content-type"]
+        assert "MediaMetaData_Transcriber | Testing Apparatus" in response.text
+
+    def test_test_endpoint(self, client: TestClient):
+        response = client.get("/test")
+        assert response.status_code == 200
+        assert "text/html" in response.headers["content-type"]
+        assert "Target Media Input" in response.text
 
     def test_health_endpoint(self, client: TestClient):
         response = client.get("/health")

@@ -65,13 +65,24 @@ app.add_middleware(
 app.include_router(api_router, prefix="/api/v1")
 
 
-@app.get("/", tags=["Root"])
-def root():
-    """Service status and quick links."""
-    return {
+from pathlib import Path
+from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
+
+STATIC_INDEX_PATH = Path(__file__).parent / "static" / "index.html"
+
+
+@app.get("/", tags=["Root & Testing Apparatus"])
+def root(request: Request):
+    """Serve embedded Testing Apparatus web UI for browsers, or return JSON status for API clients."""
+    accept_header = request.headers.get("accept", "")
+    if "text/html" in accept_header and STATIC_INDEX_PATH.is_file():
+        return FileResponse(STATIC_INDEX_PATH, media_type="text/html")
+
+    return JSONResponse({
         "service": "MediaMetaData_Transcriber",
         "status": "online",
         "version": "1.0.0",
+        "testing_ui": "/ui",
         "docs": "/docs",
         "health": "/api/v1/health",
         "storage": str(settings.STORAGE_DIR),
@@ -79,7 +90,16 @@ def root():
             "max_video_duration_seconds": settings.MAX_DURATION_SECONDS,
             "max_audio_size_bytes": settings.MAX_AUDIO_SIZE_BYTES,
         },
-    }
+    })
+
+
+@app.get("/ui", tags=["Root & Testing Apparatus"], response_class=HTMLResponse)
+@app.get("/test", tags=["Root & Testing Apparatus"], response_class=HTMLResponse)
+def testing_ui():
+    """Direct route for Testing Apparatus web interface."""
+    if STATIC_INDEX_PATH.is_file():
+        return FileResponse(STATIC_INDEX_PATH, media_type="text/html")
+    return HTMLResponse("<h1>Testing Apparatus UI not found</h1>", status_code=404)
 
 
 @app.get("/health", tags=["Health & Diagnostics"])
