@@ -456,3 +456,58 @@ class TestTranscriptionAndAudioExtractionGuardrails:
             assert bypass_data["transcript"]["text"] == "Freshly transcribed live text."
 
 
+class TestApiKeyAndRouteCompatibility:
+    """Test optional API_KEY enforcement and /api/* route aliasing."""
+
+    def test_api_route_without_v1_prefix(self, client: TestClient, sample_meta_dict):
+        """Routes mounted at /api/metadata should work identically to /api/v1/metadata."""
+        with patch("app.services.media.media_service._get_base_ytdlp_opts", return_value={}), \
+             patch("yt_dlp.YoutubeDL.extract_info", return_value=sample_meta_dict):
+            response = client.post("/api/metadata", json={"url": "https://example.com/test"})
+            assert response.status_code == 200
+            assert response.json()["title"] == "Introduction to AI Audio Processing"
+
+    def test_api_key_enforcement_when_configured(self, client: TestClient, monkeypatch, sample_meta_dict):
+        """When settings.API_KEY is configured, unauthenticated requests must be rejected with 401."""
+        from app.config import settings
+        test_key = "test-secret-key-12345"
+        monkeypatch.setattr(settings, "API_KEY", test_key)
+
+        with patch("app.services.media.media_service._get_base_ytdlp_opts", return_value={}), \
+             patch("yt_dlp.YoutubeDL.extract_info", return_value=sample_meta_dict):
+
+            # 1. Request without key -> 401
+            res_no_key = client.post("/api/v1/metadata", json={"url": "https://example.com/test"})
+            assert res_no_key.status_code == 401
+            assert "Unauthorized" in res_no_key.json()["detail"]
+
+            # 2. Request with wrong key -> 401
+            res_wrong_key = client.post(
+                "/api/v1/metadata",
+                json={"url": "https://example.com/test"},
+                headers={"X-API-Key": "wrong-key"},
+            )
+            assert res_wrong_key.status_code == 401
+
+            # 3. Request with valid X-API-Key header -> 200
+            res_valid_key = client.post(
+                "/api/v1/metadata",
+                json={"url": "https://example.com/test"},
+                headers={"X-API-Key": test_key},
+            )
+            assert res_valid_key.status_code == 200
+
+            # 4. Request with valid Authorization: Bearer token -> 200
+            res_bearer = client.post(
+                "/api/v1/metadata",
+                json={"url": "https://example.com/test"},
+                headers={"Authorization": f"Bearer {test_key}"},
+            )
+            assert res_bearer.status_code == 200
+
+            # 5. Public health check remains accessible without key
+            health_res = client.get("/api/v1/health")
+            assert health_res.status_code == 200
+
+
+

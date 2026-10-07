@@ -76,8 +76,43 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Register main API router under /api/v1
+
+@app.middleware("http")
+async def verify_api_key_middleware(request: Request, call_next):
+    """Enforce optional API key authentication if settings.API_KEY is configured."""
+    if settings.API_KEY and settings.API_KEY.strip():
+        public_paths = {
+            "/",
+            "/ui",
+            "/docs",
+            "/redoc",
+            "/openapi.json",
+            "/api/v1/health",
+            "/api/health",
+            "/health",
+        }
+        path = request.url.path.rstrip("/")
+        normalized_path = path if path else "/"
+
+        if normalized_path not in public_paths and not request.url.path.startswith("/static"):
+            provided = request.headers.get("X-API-Key") or request.headers.get("x-api-key")
+            if not provided:
+                auth = request.headers.get("Authorization", "")
+                if auth.startswith("Bearer "):
+                    provided = auth[7:].strip()
+
+            if not provided or provided.strip() != settings.API_KEY.strip():
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Unauthorized: Invalid or missing API key. Provide via 'X-API-Key' header."},
+                )
+
+    return await call_next(request)
+
+
+# Register main API router under both /api/v1 and /api for compatibility
 app.include_router(api_router, prefix="/api/v1")
+app.include_router(api_router, prefix="/api")
 
 
 from pathlib import Path

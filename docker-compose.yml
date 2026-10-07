@@ -14,6 +14,7 @@ services:
       - PORT=8000
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - DEBUG=${DEBUG:-false}
+      - API_KEY=${API_KEY:-}
 
       # Persistent storage paths
       - STORAGE_DIR=/srv/storage/jobs

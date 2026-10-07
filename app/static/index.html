@@ -871,6 +871,17 @@
               Bypass Cache (Force Fresh Live Run)
             </label>
           </div>
+          <div class="toggle-item" style="border-left: 1px solid var(--card-border); padding-left: 0.75rem;">
+            <label for="apiKeyInput" style="font-weight: 600; color: #a78bfa;" title="Optional X-API-Key passed in request headers">API Key:</label>
+            <input 
+              type="password" 
+              id="apiKeyInput" 
+              style="width: 140px; padding: 0.25rem 0.5rem; font-size: 0.8rem; background: var(--code-bg); border: 1px solid var(--card-border); color: #c4b5fd; border-radius: 6px;" 
+              placeholder="Optional Key" 
+              title="Optional API Key passed as X-API-Key header"
+              onchange="localStorage.setItem('mediametadata_api_key', this.value.trim())"
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -1223,6 +1234,12 @@
           method: method,
           headers: {},
         };
+        const savedApiKey = localStorage.getItem('mediametadata_api_key') || '';
+        const apiKeyInput = document.getElementById('apiKeyInput');
+        const activeApiKey = apiKeyInput ? apiKeyInput.value.trim() : savedApiKey;
+        if (activeApiKey) {
+          fetchOptions.headers['X-API-Key'] = activeApiKey;
+        }
         if (payload !== null && payload !== undefined) {
           fetchOptions.headers['Content-Type'] = 'application/json';
           fetchOptions.body = JSON.stringify(payload);
@@ -1410,6 +1427,10 @@
 
     // Load initial health diagnostics on boot
     async function fetchHealthDiagnostics() {
+      const savedKey = localStorage.getItem('mediametadata_api_key');
+      if (savedKey && document.getElementById('apiKeyInput')) {
+        document.getElementById('apiKeyInput').value = savedKey;
+      }
       try {
         const res = await executeApiCall({ method: 'GET', endpoint: '/api/v1/health' });
         const data = res.data;

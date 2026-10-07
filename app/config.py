@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     PORT: int = 8000
     DEBUG: bool = False
     LOG_LEVEL: str = "INFO"
+    API_KEY: Optional[str] = Field(
+        default=None,
+        description="Optional API key for securing endpoints. If configured, requests must provide X-API-Key header.",
+    )
 
     # Persistent Storage Paths
     # Common persistent storage structure: /srv/storage/jobs/{job_id}/
