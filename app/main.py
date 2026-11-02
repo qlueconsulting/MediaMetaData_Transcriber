@@ -52,6 +52,7 @@ async def lifespan(app: FastAPI):
     yield
 
     log.info("Shutting down MediaMetaData_Transcriber Microservice...")
+    local_whisper_service.unload_model()
 
 
 app = FastAPI(

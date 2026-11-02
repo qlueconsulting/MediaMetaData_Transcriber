@@ -99,6 +99,10 @@ class Settings(BaseSettings):
         default=True,
         description="Dynamically scale batch size and engine/model tier based on video duration to enforce < 30s SLA",
     )
+    WHISPER_IDLE_TIMEOUT_SECONDS: int = Field(
+        default=900,
+        description="Seconds of inactivity before auto-unloading Whisper model from GPU memory (900s = 15m; 0 to disable)",
+    )
 
     # Groq Cloud Whisper API Fallback
     ENABLE_GROQ_FALLBACK: bool = Field(

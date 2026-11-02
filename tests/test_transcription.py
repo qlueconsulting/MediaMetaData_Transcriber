@@ -346,4 +346,58 @@ def test_local_whisper_complete_oom_falls_back_to_cpu(dummy_audio_file):
         assert result.engine == "faster-whisper-cpu"
 
 
+def test_local_whisper_idle_timeout_unloads_model(monkeypatch):
+    """Whisper model should automatically unload when idle timeout expires."""
+    import time
+    from app.services.whisper_local import LocalWhisperService
 
+    service = LocalWhisperService()
+    monkeypatch.setattr(settings, "WHISPER_IDLE_TIMEOUT_SECONDS", 0.15)
+
+    mock_whisper_instance = MagicMock()
+    mock_whisper_instance.model = MagicMock()
+
+    with patch("faster_whisper.WhisperModel", return_value=mock_whisper_instance), \
+         patch.object(service, "is_cuda_available", return_value=(False, "CPU")):
+        service.load_model(model_name="base", device="cpu", compute_type="int8")
+
+        assert service.is_model_loaded() is True
+        assert service.seconds_until_idle() is not None
+        assert service.seconds_until_idle() <= 0.2
+
+        time.sleep(0.25)
+
+        assert service.is_model_loaded() is False
+        assert service.seconds_until_idle() is None
+        mock_whisper_instance.model.unload_model.assert_called_once()
+
+
+def test_local_whisper_activity_resets_idle_timer(dummy_audio_file, monkeypatch):
+    """New transcription activity should cancel/reset the idle timer."""
+    import time
+    from app.services.whisper_local import LocalWhisperService
+
+    service = LocalWhisperService()
+    monkeypatch.setattr(settings, "WHISPER_IDLE_TIMEOUT_SECONDS", 0.3)
+
+    mock_whisper_instance = MagicMock()
+    mock_seg = MagicMock(id=0, seek=0, start=0.0, end=1.0, text="Hello", avg_logprob=-0.1, no_speech_prob=0.01, words=[])
+    mock_info = MagicMock(language="en", language_probability=0.99, duration=1.0)
+    mock_whisper_instance.transcribe.return_value = ([mock_seg], mock_info)
+
+    with patch("faster_whisper.WhisperModel", return_value=mock_whisper_instance), \
+         patch.object(service, "is_cuda_available", return_value=(False, "CPU")):
+        service.load_model(model_name="base", device="cpu", compute_type="int8")
+        assert service.is_model_loaded() is True
+
+        time.sleep(0.15)
+        assert service.is_model_loaded() is True
+
+        service.transcribe(audio_path=dummy_audio_file, job_id="reset-job", batch_size=1)
+        assert service.is_model_loaded() is True
+
+        time.sleep(0.18)
+        assert service.is_model_loaded() is True
+
+        time.sleep(0.2)
+        assert service.is_model_loaded() is False

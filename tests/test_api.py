@@ -12,6 +12,27 @@ from app.models.transcript import TranscriptData, TranscriptSegment
 class TestHealthEndpoints:
     """Test health check and root endpoints."""
 
+    def test_whisper_manual_load_and_unload_endpoints(self, client: TestClient):
+        """Test manually triggering load and unload of Whisper model."""
+        from unittest.mock import patch
+        # Unload
+        res_unload = client.post("/api/v1/whisper/unload")
+        assert res_unload.status_code == 200
+        assert res_unload.json()["status"] == "success"
+        assert res_unload.json()["model_loaded"] is False
+
+        # Health endpoint shows model_loaded is False
+        health_res = client.get("/api/v1/health")
+        assert health_res.status_code == 200
+        assert health_res.json()["whisper"]["model_loaded"] is False
+
+        # Load
+        with patch("faster_whisper.WhisperModel"):
+            res_load = client.post("/api/v1/whisper/load")
+            assert res_load.status_code == 200
+            assert res_load.json()["status"] == "success"
+            assert res_load.json()["model_loaded"] is True
+
     def test_root_endpoint_json(self, client: TestClient):
         response = client.get("/")
         assert response.status_code == 200

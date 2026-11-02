@@ -45,6 +45,10 @@ def health_check():
             "model": settings.WHISPER_MODEL,
             "device": settings.WHISPER_DEVICE,
             "compute_type": settings.WHISPER_COMPUTE_TYPE,
+            "model_loaded": local_whisper_service.is_model_loaded(),
+            "active_requests": local_whisper_service.active_requests_count(),
+            "idle_timeout_seconds": settings.WHISPER_IDLE_TIMEOUT_SECONDS,
+            "seconds_until_idle": local_whisper_service.seconds_until_idle(),
         },
         "groq_fallback": {
             "enabled": settings.ENABLE_GROQ_FALLBACK,
@@ -68,4 +72,27 @@ def health_check():
             },
         },
         "yt_dlp_version": yt_dlp.version.__version__,
+    }
+
+
+@router.post("/whisper/unload")
+def unload_whisper():
+    """Manually unload Whisper model from GPU memory to free VRAM immediately."""
+    unloaded = local_whisper_service.unload_model()
+    return {
+        "status": "success",
+        "unloaded": unloaded,
+        "model_loaded": local_whisper_service.is_model_loaded(),
+    }
+
+
+@router.post("/whisper/load")
+def load_whisper():
+    """Manually preload/warmup Whisper model into GPU memory."""
+    local_whisper_service.load_model()
+    return {
+        "status": "success",
+        "model_loaded": local_whisper_service.is_model_loaded(),
+        "model": settings.WHISPER_MODEL,
+        "seconds_until_idle": local_whisper_service.seconds_until_idle(),
     }

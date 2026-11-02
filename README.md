@@ -53,6 +53,12 @@ All jobs persist artifacts to a structured volume directory mounted at `/srv/sto
 └── transcript.json   # Full transcript, language detected, and segment timestamps
 ```
 
+### 4. Automatic GPU VRAM Idle Reclaim (15-Minute Timeout)
+- To prevent idle faster-whisper model weights from holding GPU memory when not in use, the service arms an inactivity timer (`WHISPER_IDLE_TIMEOUT_SECONDS=900`, default 15 minutes).
+- If no new transcription requests arrive within 15 minutes, the model is automatically unloaded from GPU memory and garbage-collected, returning idle VRAM allocation to the host system.
+- When a new transcription request arrives, the service lazily loads the model back into GPU VRAM on demand, seamlessly processing the request and re-arming the idle countdown.
+- Manual management is also supported via `POST /api/v1/whisper/unload` and `POST /api/v1/whisper/load`.
+
 ---
 
 ## 3. Storage Artifact Schemas

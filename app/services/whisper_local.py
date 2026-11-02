@@ -4,6 +4,8 @@ Optimized for NVIDIA RTX 2060 Super 8GB VRAM with float16 compute type.
 """
 
 import os
+import time
+import threading
 from pathlib import Path
 from typing import Optional, List, Tuple, Dict, Any, Union
 from app.config import settings
@@ -21,6 +23,10 @@ class LocalWhisperService:
         self._device_used: Optional[str] = None
         self._loaded_device_index = None
         self._loaded_compute_type: Optional[str] = None
+        self._lock = threading.RLock()
+        self._idle_timer: Optional[threading.Timer] = None
+        self._last_activity_time: float = 0.0
+        self._active_requests: int = 0
 
     def is_cuda_available(self) -> Tuple[bool, str]:
         """Check if CUDA acceleration is available on the host system."""
@@ -141,6 +147,127 @@ class LocalWhisperService:
             "details": f"Multi-GPU enabled: {len(devices) or cuda_count} device(s) detected; Whisper bound to index {active_indices}" if cuda_available else "No CUDA devices detected",
         }
 
+    def is_model_loaded(self) -> bool:
+        """Check whether the faster-whisper model is currently in memory."""
+        with self._lock:
+            return self._model is not None
+
+    def active_requests_count(self) -> int:
+        """Return the count of in-flight transcription requests."""
+        with self._lock:
+            return self._active_requests
+
+    def seconds_until_idle(self) -> Optional[float]:
+        """Return seconds until the model will be unloaded due to inactivity, or None."""
+        with self._lock:
+            if self._model is None:
+                return None
+            timeout = getattr(settings, "WHISPER_IDLE_TIMEOUT_SECONDS", 900)
+            if timeout <= 0:
+                return None
+            if self._active_requests > 0:
+                return float(timeout)
+            elapsed = time.time() - self._last_activity_time
+            return max(0.0, float(timeout) - elapsed)
+
+    def _schedule_idle_timer(self) -> None:
+        """Schedule or reset the idle timer if timeout > 0, model is loaded, and not busy."""
+        with self._lock:
+            if self._idle_timer is not None:
+                self._idle_timer.cancel()
+                self._idle_timer = None
+
+            timeout = getattr(settings, "WHISPER_IDLE_TIMEOUT_SECONDS", 900)
+            if timeout <= 0:
+                return
+
+            if self._model is None:
+                return
+
+            if self._active_requests > 0:
+                return
+
+            self._idle_timer = threading.Timer(float(timeout), self._on_idle_timeout)
+            self._idle_timer.daemon = True
+            self._idle_timer.start()
+            log.info(f"Whisper idle timer armed: model will unload if idle for {timeout:.0f}s ({timeout / 60:.1f}m)")
+
+    def _on_idle_timeout(self) -> None:
+        """Invoked when idle timer fires. Unloads the model if inactivity threshold is met."""
+        with self._lock:
+            self._idle_timer = None
+
+            if self._model is None:
+                return
+
+            if self._active_requests > 0:
+                log.debug("Whisper currently busy with active transcription; postponing idle unload.")
+                self._schedule_idle_timer()
+                return
+
+            timeout = getattr(settings, "WHISPER_IDLE_TIMEOUT_SECONDS", 900)
+            elapsed = time.time() - self._last_activity_time
+            if elapsed < timeout - 0.5:
+                remaining = timeout - elapsed
+                log.debug(f"Whisper had recent activity {elapsed:.1f}s ago; rescheduling idle timer for {remaining:.1f}s.")
+                self._idle_timer = threading.Timer(max(1.0, remaining), self._on_idle_timeout)
+                self._idle_timer.daemon = True
+                self._idle_timer.start()
+                return
+
+            log.info(
+                f"No transcription requests received for {elapsed:.0f}s "
+                f"(idle threshold: {timeout:.0f}s). Unloading Whisper model '{self._loaded_model_name}' to reclaim GPU VRAM."
+            )
+            self._unload_model_locked()
+
+    def unload_model(self) -> bool:
+        """Public thread-safe method to unload faster-whisper model and cancel idle timer."""
+        with self._lock:
+            if self._idle_timer is not None:
+                self._idle_timer.cancel()
+                self._idle_timer = None
+            return self._unload_model_locked()
+
+    def _unload_model_locked(self) -> bool:
+        """Unload model from GPU memory and run GC while holding self._lock."""
+        if self._model is None and self._batched_model is None:
+            return False
+
+        unloaded_name = self._loaded_model_name
+        device = self._device_used or "GPU"
+        log.info(f"Unloading faster-whisper model '{unloaded_name}' from {device} to reclaim VRAM...")
+
+        try:
+            if hasattr(self._model, "model") and hasattr(self._model.model, "unload_model"):
+                try:
+                    self._model.model.unload_model()
+                except Exception as e:
+                    log.debug(f"ctranslate2 unload_model notice: {e}")
+        except Exception:
+            pass
+
+        self._batched_model = None
+        self._model = None
+        self._loaded_model_name = None
+        self._device_used = None
+        self._loaded_device_index = None
+        self._loaded_compute_type = None
+
+        import gc
+        gc.collect()
+
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()
+        except Exception:
+            pass
+
+        log.info(f"Faster-whisper model '{unloaded_name}' successfully unloaded. GPU VRAM reclaimed.")
+        return True
+
     def load_model(
         self,
         force_reload: bool = False,
@@ -149,55 +276,62 @@ class LocalWhisperService:
         compute_type: Optional[str] = None,
     ):
         """Lazy load or return the preloaded faster-whisper model spanning available GPUs."""
-        from faster_whisper import WhisperModel
+        with self._lock:
+            from faster_whisper import WhisperModel
 
-        target_model = model_name or settings.WHISPER_MODEL
-        target_device = device or settings.WHISPER_DEVICE
-        target_compute_type = compute_type or settings.WHISPER_COMPUTE_TYPE
-        device_indices = self.resolve_device_indices() if target_device == "cuda" else 0
-        num_workers = len(device_indices) if isinstance(device_indices, list) else 1
+            target_model = model_name or settings.WHISPER_MODEL
+            target_device = device or settings.WHISPER_DEVICE
+            target_compute_type = compute_type or settings.WHISPER_COMPUTE_TYPE
+            device_indices = self.resolve_device_indices() if target_device == "cuda" else 0
+            num_workers = len(device_indices) if isinstance(device_indices, list) else 1
 
-        # Validate CUDA availability
-        cuda_ok, cuda_msg = self.is_cuda_available()
-        if target_device.lower() == "cuda" and not cuda_ok:
-            log.warning(f"CUDA requested but unavailable ({cuda_msg}). Falling back to CPU for local whisper.")
-            target_device = "cpu"
-            target_compute_type = "int8" if target_compute_type == "float16" else target_compute_type
-            device_indices = 0
-            num_workers = 1
+            # Validate CUDA availability
+            cuda_ok, cuda_msg = self.is_cuda_available()
+            if target_device.lower() == "cuda" and not cuda_ok:
+                log.warning(f"CUDA requested but unavailable ({cuda_msg}). Falling back to CPU for local whisper.")
+                target_device = "cpu"
+                target_compute_type = "int8" if target_compute_type == "float16" else target_compute_type
+                device_indices = 0
+                num_workers = 1
 
-        if self._model is not None and not force_reload:
-            if (
-                self._loaded_model_name == target_model
-                and self._device_used == target_device
-                and self._loaded_device_index == device_indices
-                and getattr(self, "_loaded_compute_type", None) == target_compute_type
-            ):
-                return self._model
+            if self._model is not None and not force_reload:
+                if (
+                    self._loaded_model_name == target_model
+                    and self._device_used == target_device
+                    and self._loaded_device_index == device_indices
+                    and getattr(self, "_loaded_compute_type", None) == target_compute_type
+                ):
+                    self._last_activity_time = time.time()
+                    if self._active_requests == 0:
+                        self._schedule_idle_timer()
+                    return self._model
 
-        log.info(
-            f"Loading faster-whisper model '{target_model}' "
-            f"(device={target_device}, device_index={device_indices}, num_workers={num_workers}, "
-            f"compute_type={target_compute_type}, download_root={settings.MODEL_DIR})"
-        )
+            log.info(
+                f"Loading faster-whisper model '{target_model}' "
+                f"(device={target_device}, device_index={device_indices}, num_workers={num_workers}, "
+                f"compute_type={target_compute_type}, download_root={settings.MODEL_DIR})"
+            )
 
-        settings.MODEL_DIR.mkdir(parents=True, exist_ok=True)
+            settings.MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
-        self._model = WhisperModel(
-            model_size_or_path=target_model,
-            device=target_device,
-            device_index=device_indices,
-            compute_type=target_compute_type,
-            download_root=str(settings.MODEL_DIR),
-            num_workers=num_workers,
-        )
-        self._loaded_model_name = target_model
-        self._device_used = target_device
-        self._loaded_device_index = device_indices
-        self._loaded_compute_type = target_compute_type
-        self._batched_model = None
-        log.info(f"Loaded faster-whisper model '{target_model}' on {target_device} (indices={device_indices}, compute={target_compute_type}) successfully.")
-        return self._model
+            self._model = WhisperModel(
+                model_size_or_path=target_model,
+                device=target_device,
+                device_index=device_indices,
+                compute_type=target_compute_type,
+                download_root=str(settings.MODEL_DIR),
+                num_workers=num_workers,
+            )
+            self._loaded_model_name = target_model
+            self._device_used = target_device
+            self._loaded_device_index = device_indices
+            self._loaded_compute_type = target_compute_type
+            self._batched_model = None
+            self._last_activity_time = time.time()
+            if self._active_requests == 0:
+                self._schedule_idle_timer()
+            log.info(f"Loaded faster-whisper model '{target_model}' on {target_device} (indices={device_indices}, compute={target_compute_type}) successfully.")
+            return self._model
 
     def transcribe(
         self,
@@ -211,91 +345,136 @@ class LocalWhisperService:
         audio_duration: Optional[float] = None,
     ) -> TranscriptData:
         """Transcribe audio with safe batch sizing and automatic self-healing OOM recovery."""
-        target_model = model_name or settings.WHISPER_MODEL
-        model = self.load_model(model_name=target_model)
-        log.info(f"Starting local transcription for job {job_id} using model {self._loaded_model_name} on {self._device_used}")
+        with self._lock:
+            self._active_requests += 1
+            if self._idle_timer is not None:
+                self._idle_timer.cancel()
+                self._idle_timer = None
 
-        # Safe batch sizing (cap at 8 on 8GB VRAM to avoid CUDA OOM)
-        requested_batch_size = batch_size or settings.WHISPER_BATCH_SIZE
-        effective_batch_size = min(requested_batch_size, 8) if requested_batch_size > 0 else 8
+        try:
+            target_model = model_name or settings.WHISPER_MODEL
+            model = self.load_model(model_name=target_model)
+            log.info(f"Starting local transcription for job {job_id} using model {self._loaded_model_name} on {self._device_used}")
 
-        def _drain_segments(generator) -> Tuple[List[TranscriptSegment], str]:
-            """Safely iterate generator to trigger inference and catch runtime memory exceptions."""
-            segs: List[TranscriptSegment] = []
-            parts: List[str] = []
-            for seg in generator:
-                words = None
-                if word_timestamps and hasattr(seg, "words") and seg.words:
-                    words = [
-                        WordTimestamp(
-                            word=w.word,
-                            start=w.start,
-                            end=w.end,
-                            probability=getattr(w, "probability", None),
-                        )
-                        for w in seg.words
-                    ]
+            # Safe batch sizing (cap at 8 on 8GB VRAM to avoid CUDA OOM)
+            requested_batch_size = batch_size or settings.WHISPER_BATCH_SIZE
+            effective_batch_size = min(requested_batch_size, 8) if requested_batch_size > 0 else 8
 
-                segment_model = TranscriptSegment(
-                    id=seg.id,
-                    seek=getattr(seg, "seek", None),
-                    start=seg.start,
-                    end=seg.end,
-                    text=seg.text,
-                    avg_logprob=getattr(seg, "avg_logprob", None),
-                    no_speech_prob=getattr(seg, "no_speech_prob", None),
-                    words=words,
-                )
-                segs.append(segment_model)
-                parts.append(seg.text)
-            return segs, "".join(parts).strip()
+            def _drain_segments(generator) -> Tuple[List[TranscriptSegment], str]:
+                """Safely iterate generator to trigger inference and catch runtime memory exceptions."""
+                segs: List[TranscriptSegment] = []
+                parts: List[str] = []
+                for seg in generator:
+                    words = None
+                    if word_timestamps and hasattr(seg, "words") and seg.words:
+                        words = [
+                            WordTimestamp(
+                                word=w.word,
+                                start=w.start,
+                                end=w.end,
+                                probability=getattr(w, "probability", None),
+                            )
+                            for w in seg.words
+                        ]
 
-        segments: Optional[List[TranscriptSegment]] = None
-        full_text: Optional[str] = None
-        info = None
-        used_engine = f"faster-whisper-{self._device_used or 'cuda'}"
-
-        # ----------------------------------------------------------------------
-        # Strategy 1: BatchedInferencePipeline (Adaptive batch size with retry)
-        # ----------------------------------------------------------------------
-        if effective_batch_size > 1 and self._device_used == "cuda":
-            for try_batch in [effective_batch_size, 4]:
-                try:
-                    from faster_whisper import BatchedInferencePipeline
-                    if self._batched_model is None or getattr(self._batched_model, "model", None) != model:
-                        self._batched_model = BatchedInferencePipeline(model=model)
-                    log.info(
-                        f"Executing BatchedInferencePipeline (model={target_model}, batch_size={try_batch}, "
-                        f"beam_size={settings.WHISPER_BEAM_SIZE}, vad_filter={settings.WHISPER_VAD_FILTER})"
+                    segment_model = TranscriptSegment(
+                        id=seg.id,
+                        seek=getattr(seg, "seek", None),
+                        start=seg.start,
+                        end=seg.end,
+                        text=seg.text,
+                        avg_logprob=getattr(seg, "avg_logprob", None),
+                        no_speech_prob=getattr(seg, "no_speech_prob", None),
+                        words=words,
                     )
-                    gen, current_info = self._batched_model.transcribe(
+                    segs.append(segment_model)
+                    parts.append(seg.text)
+                return segs, "".join(parts).strip()
+
+            segments: Optional[List[TranscriptSegment]] = None
+            full_text: Optional[str] = None
+            info = None
+            used_engine = f"faster-whisper-{self._device_used or 'cuda'}"
+
+            # ----------------------------------------------------------------------
+            # Strategy 1: BatchedInferencePipeline (Adaptive batch size with retry)
+            # ----------------------------------------------------------------------
+            if effective_batch_size > 1 and self._device_used == "cuda":
+                for try_batch in [effective_batch_size, 4]:
+                    try:
+                        from faster_whisper import BatchedInferencePipeline
+                        if self._batched_model is None or getattr(self._batched_model, "model", None) != model:
+                            self._batched_model = BatchedInferencePipeline(model=model)
+                        log.info(
+                            f"Executing BatchedInferencePipeline (model={target_model}, batch_size={try_batch}, "
+                            f"beam_size={settings.WHISPER_BEAM_SIZE}, vad_filter={settings.WHISPER_VAD_FILTER})"
+                        )
+                        gen, current_info = self._batched_model.transcribe(
+                            str(audio_path),
+                            batch_size=try_batch,
+                            beam_size=settings.WHISPER_BEAM_SIZE,
+                            language=language,
+                            initial_prompt=prompt,
+                            word_timestamps=word_timestamps,
+                            vad_filter=settings.WHISPER_VAD_FILTER,
+                            chunk_length=30,
+                        )
+                        segments, full_text = _drain_segments(gen)
+                        info = current_info
+                        break  # Success
+                    except Exception as e:
+                        err = str(e).lower()
+                        if ("out of memory" in err or "cuda" in err) and try_batch > 4:
+                            log.warning(f"Batched inference OOM at batch_size={try_batch}. Retrying with batch_size=4...")
+                            continue
+                        log.warning(f"Batched inference failed ({e}), falling back to sequential GPU transcribe")
+                        break
+
+            # ----------------------------------------------------------------------
+            # Strategy 2: Standard sequential GPU transcribe (batch_size=1)
+            # ----------------------------------------------------------------------
+            if segments is None:
+                try:
+                    log.info(f"Executing standard sequential transcribe for job {job_id}")
+                    gen, info = model.transcribe(
                         str(audio_path),
-                        batch_size=try_batch,
                         beam_size=settings.WHISPER_BEAM_SIZE,
                         language=language,
                         initial_prompt=prompt,
                         word_timestamps=word_timestamps,
                         vad_filter=settings.WHISPER_VAD_FILTER,
-                        chunk_length=30,
                     )
                     segments, full_text = _drain_segments(gen)
-                    info = current_info
-                    break  # Success
                 except Exception as e:
                     err = str(e).lower()
-                    if ("out of memory" in err or "cuda" in err) and try_batch > 4:
-                        log.warning(f"Batched inference OOM at batch_size={try_batch}. Retrying with batch_size=4...")
-                        continue
-                    log.warning(f"Batched inference failed ({e}), falling back to sequential GPU transcribe")
-                    break
+                    log.warning(f"Standard sequential GPU transcribe failed: {e}")
 
-        # ----------------------------------------------------------------------
-        # Strategy 2: Standard sequential GPU transcribe (batch_size=1)
-        # ----------------------------------------------------------------------
-        if segments is None:
-            try:
-                log.info(f"Executing standard sequential transcribe for job {job_id}")
-                gen, info = model.transcribe(
+                    # --------------------------------------------------------------
+                    # Strategy 3: Reload with int8_float16 compute_type (cuts VRAM in half)
+                    # --------------------------------------------------------------
+                    if ("out of memory" in err or "cuda" in err) and getattr(self, "_loaded_compute_type", None) != "int8_float16":
+                        try:
+                            log.warning("CUDA OOM encountered: Auto-recovering with compute_type='int8_float16'...")
+                            model = self.load_model(force_reload=True, model_name=target_model, compute_type="int8_float16")
+                            gen, info = model.transcribe(
+                                str(audio_path),
+                                beam_size=settings.WHISPER_BEAM_SIZE,
+                                language=language,
+                                initial_prompt=prompt,
+                                word_timestamps=word_timestamps,
+                                vad_filter=settings.WHISPER_VAD_FILTER,
+                            )
+                            segments, full_text = _drain_segments(gen)
+                        except Exception as e2:
+                            log.warning(f"int8_float16 recovery failed: {e2}")
+
+            # ----------------------------------------------------------------------
+            # Strategy 4: Graceful CPU Fallback (Guarantees request never hard-fails)
+            # ----------------------------------------------------------------------
+            if segments is None:
+                log.warning(f"All GPU execution strategies failed for job {job_id}. Falling back to CPU...")
+                cpu_model = self.load_model(force_reload=True, model_name=target_model, device="cpu", compute_type="int8")
+                gen, info = cpu_model.transcribe(
                     str(audio_path),
                     beam_size=settings.WHISPER_BEAM_SIZE,
                     language=language,
@@ -304,62 +483,30 @@ class LocalWhisperService:
                     vad_filter=settings.WHISPER_VAD_FILTER,
                 )
                 segments, full_text = _drain_segments(gen)
-            except Exception as e:
-                err = str(e).lower()
-                log.warning(f"Standard sequential GPU transcribe failed: {e}")
+                used_engine = "faster-whisper-cpu"
 
-                # --------------------------------------------------------------
-                # Strategy 3: Reload with int8_float16 compute_type (cuts VRAM in half)
-                # --------------------------------------------------------------
-                if ("out of memory" in err or "cuda" in err) and getattr(self, "_loaded_compute_type", None) != "int8_float16":
-                    try:
-                        log.warning("CUDA OOM encountered: Auto-recovering with compute_type='int8_float16'...")
-                        model = self.load_model(force_reload=True, model_name=target_model, compute_type="int8_float16")
-                        gen, info = model.transcribe(
-                            str(audio_path),
-                            beam_size=settings.WHISPER_BEAM_SIZE,
-                            language=language,
-                            initial_prompt=prompt,
-                            word_timestamps=word_timestamps,
-                            vad_filter=settings.WHISPER_VAD_FILTER,
-                        )
-                        segments, full_text = _drain_segments(gen)
-                    except Exception as e2:
-                        log.warning(f"int8_float16 recovery failed: {e2}")
-
-        # ----------------------------------------------------------------------
-        # Strategy 4: Graceful CPU Fallback (Guarantees request never hard-fails)
-        # ----------------------------------------------------------------------
-        if segments is None:
-            log.warning(f"All GPU execution strategies failed for job {job_id}. Falling back to CPU...")
-            cpu_model = self.load_model(force_reload=True, model_name=target_model, device="cpu", compute_type="int8")
-            gen, info = cpu_model.transcribe(
-                str(audio_path),
-                beam_size=settings.WHISPER_BEAM_SIZE,
-                language=language,
-                initial_prompt=prompt,
-                word_timestamps=word_timestamps,
-                vad_filter=settings.WHISPER_VAD_FILTER,
+            log.info(
+                f"Local transcription finished for job {job_id}: "
+                f"{len(segments)} segments, detected language '{getattr(info, 'language', 'unknown')}' "
+                f"using {used_engine}"
             )
-            segments, full_text = _drain_segments(gen)
-            used_engine = "faster-whisper-cpu"
 
-        log.info(
-            f"Local transcription finished for job {job_id}: "
-            f"{len(segments)} segments, detected language '{getattr(info, 'language', 'unknown')}' "
-            f"using {used_engine}"
-        )
-
-        return TranscriptData(
-            job_id=job_id,
-            text=full_text,
-            language=getattr(info, "language", None),
-            language_probability=round(info.language_probability, 4) if hasattr(info, "language_probability") and info.language_probability else None,
-            duration_seconds=round(info.duration, 2) if hasattr(info, "duration") and info.duration else None,
-            engine=used_engine,
-            model=self._loaded_model_name or settings.WHISPER_MODEL,
-            segments=segments,
-        )
+            return TranscriptData(
+                job_id=job_id,
+                text=full_text,
+                language=getattr(info, "language", None),
+                language_probability=round(info.language_probability, 4) if hasattr(info, "language_probability") and info.language_probability else None,
+                duration_seconds=round(info.duration, 2) if hasattr(info, "duration") and info.duration else None,
+                engine=used_engine,
+                model=self._loaded_model_name or settings.WHISPER_MODEL,
+                segments=segments,
+            )
+        finally:
+            with self._lock:
+                self._active_requests = max(0, self._active_requests - 1)
+                self._last_activity_time = time.time()
+                if self._active_requests == 0:
+                    self._schedule_idle_timer()
 
 
 # Singleton instance
